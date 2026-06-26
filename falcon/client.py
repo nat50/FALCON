@@ -29,7 +29,7 @@ class FalconClient(fl.client.NumPyClient):
         self.config = config
         self.model, self.tokenizer = modeling.build_model(
             config.client_model_name, rank, config.lora_target_modules,
-            config.lora_alpha, config.lora_dropout, config.device,
+            rank, config.lora_dropout, config.device,
         )
         if config.freeze_shared_A:
             modeling.freeze_A(self.model)
