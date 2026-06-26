@@ -44,7 +44,7 @@ class Config:
     b_budget_fraction: float = 0.4
     # Gemma GGUF used by the LLM agent (text-only usage).
     agent_repo_id: str = "google/gemma-4-E2B-it-qat-q4_0-gguf"
-    agent_gguf_filename: str = "gemma-4-E2B-it-qat-q4_0.gguf"
+    agent_gguf_filename: str = "gemma-4-E2B_q4_0-it.gguf"
     agent_n_ctx: int = 4096
 
     # ----- Data -----
