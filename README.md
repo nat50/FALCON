@@ -8,23 +8,6 @@ client's knowledge private) or **both A and B** (shares full common knowledge). 
 merges all A's into a consensus subspace and the selected clients' B's into the shared
 content, handling **heterogeneous LoRA ranks** across clients.
 
-The full algorithm and all formulas are in [`docs/THUAT_TOAN.md`](docs/THUAT_TOAN.md) (Vietnamese).
-
-## Components
-
-| File | Role |
-| --- | --- |
-| `falcon/config.py` | All hyper-parameters in one place |
-| `falcon/lora_math.py` | Consensus subspace, weighted merge, SVD factorize, rank truncation (pure NumPy) |
-| `falcon/data.py` | Non-IID clients from `databricks-dolly-15k` (one category per client) |
-| `falcon/modeling.py` | Qwen + LoRA: build, read/write A & B, train, evaluate |
-| `falcon/agent.py` | Selection agent: Gemma GGUF (text-only) with a heuristic fallback |
-| `falcon/client.py` | Flower client (adopt shared A, keep personal B, train, upload) |
-| `falcon/strategy.py` | Flower strategy (the server-side FALCON logic) |
-| `falcon/state_store.py` | On-disk store for each client's personal B |
-| `main.py` | Runs the Flower simulation |
-| `scripts/check_merge.py` | NumPy-only sanity check of the merge math |
-
 ## Setup
 
 ```bash
@@ -33,9 +16,10 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-`llama-cpp-python` (the Gemma agent) is optional: if it is not installed, the system
-automatically uses the heuristic agent. To use the LLM agent, set
-`agent_kind = "llm"` in `falcon/config.py`.
+`llama-cpp-python` (the Gemma agent) is **required**: the selection agent is always the
+LLMAgent and there is no heuristic fallback. If the model cannot be loaded or parsed,
+the run fails with a clear error. Configure the model via `agent_repo_id` /
+`agent_gguf_filename` in `falcon/config.py`.
 
 ## Run
 
@@ -68,13 +52,5 @@ python run_experiments.py
   to your exact checkpoint id.
 - **Agent model**: `google/gemma-4-E2B-it-qat-q4_0-gguf`, used text-only for the selection
   decision (no multimodal input).
-- Defaults are sized for a quick CPU smoke test (6 clients, capped data). Increase
+- Defaults are sized for a quick smoke test (6 clients, capped data). Increase
   `max_train_per_client`, `num_rounds`, and set `device = "cuda"` for real experiments.
-
-## Suggested benchmarks (for the paper)
-
-- **Personalization**: per-client test loss / perplexity.
-- **Common knowledge**: loss on a mixed held-out test set (`data.build_global_testset`).
-- **Communication**: `comm_cost` logged each round.
-- **Main figure**: accuracy/loss vs communication cost, compared against
-  FedSA-LoRA (A only, always) and FlexLoRA / HETLoRA (A and B, always).

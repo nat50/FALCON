@@ -44,7 +44,6 @@ class Config:
     # Communication budget for uploading B, expressed as a fraction of the
     # cost of "all clients upload B". 1.0 means no limit; 0.4 means ~40%.
     b_budget_fraction: float = 0.4
-    agent_kind: str = "heuristic"  # "heuristic" or "llm"
     # Gemma GGUF used by the LLM agent (text-only usage).
     agent_repo_id: str = "google/gemma-4-E2B-it-qat-q4_0-gguf"
     agent_gguf_filename: str = "gemma-4-E2B-it-qat-q4_0.gguf"

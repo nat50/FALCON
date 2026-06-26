@@ -1,10 +1,7 @@
 """Server-side selection agent: decide which clients upload B this round.
 
-Two interchangeable agents:
-  - HeuristicAgent: deterministic greedy knapsack on score = align * n / cost.
-  - LLMAgent: prompts a Gemma GGUF model (text-only) to make the choice, and
-    transparently falls back to the heuristic if llama-cpp or the model is missing
-    or the model returns something unparsable.
+The agent is always an LLMAgent backed by a Gemma GGUF model (text-only). If the model cannot be loaded or its output cannot be parsed,
+an error is raised.
 
 A "client stat" is a dict: {"client_id": int, "align": float, "num_examples": int, "cost": float}.
 """
@@ -15,51 +12,19 @@ from typing import Dict, List
 
 from .config import Config
 
-
-def _greedy_select(stats: List[Dict], budget: float) -> List[int]:
-    """Pick clients by descending benefit-per-cost until the budget is spent."""
-    scored = []
-    for s in stats:
-        cost = max(s["cost"], 1.0)
-        score = (s["align"] * s["num_examples"]) / cost
-        scored.append((score, s["client_id"], cost))
-    scored.sort(reverse=True)
-
-    selected, spent = [], 0.0
-    for _, client_id, cost in scored:
-        if spent + cost <= budget:
-            selected.append(client_id)
-            spent += cost
-    return selected
-
-
-class HeuristicAgent:
-    """Deterministic baseline selector."""
-
-    def select(self, stats: List[Dict], budget: float) -> List[int]:
-        chosen = _greedy_select(stats, budget)
-        print(f"[agent:heuristic] selected B-uploaders: {sorted(chosen)}")
-        return chosen
-
+from llama_cpp import Llama
 
 class LLMAgent:
-    """Gemma-GGUF selector with a heuristic fallback."""
 
     def __init__(self, config: Config):
-        self.fallback = HeuristicAgent()
-        self.llm = None
-        try:
-            from llama_cpp import Llama  # imported lazily; optional dependency
-
-            self.llm = Llama.from_pretrained(
-                repo_id=config.agent_repo_id,
-                filename=config.agent_gguf_filename,
-                n_ctx=config.agent_n_ctx,
-                verbose=False,
-            )
-            print("[agent:llm] Gemma GGUF loaded.")
-        except Exception as error:  # noqa: BLE001 - any failure -> heuristic
-            print(f"[agent:llm] unavailable ({error}); using heuristic fallback.")
+        
+        self.llm = Llama.from_pretrained(
+            repo_id=config.agent_repo_id,
+            filename=config.agent_gguf_filename,
+            n_ctx=config.agent_n_ctx,
+            verbose=False,
+        )
+        print("[agent] Agent loaded.")
 
     def _build_prompt(self, stats: List[Dict], budget: float) -> str:
         lines = [
@@ -89,24 +54,18 @@ class LLMAgent:
         return [int(x) for x in raw if int(x) in valid_ids]
 
     def select(self, stats: List[Dict], budget: float) -> List[int]:
-        if self.llm is None:
-            return self.fallback.select(stats, budget)
-        try:
-            prompt = self._build_prompt(stats, budget)
-            out = self.llm.create_chat_completion(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=128,
-            )
-            text = out["choices"][0]["message"]["content"]
-            valid_ids = [s["client_id"] for s in stats]
-            chosen = self._parse_ids(text, valid_ids)
-            chosen = _enforce_budget(chosen, stats, budget)
-            print(f"[agent:llm] selected B-uploaders: {sorted(chosen)}")
-            return chosen
-        except Exception as error:  # noqa: BLE001 - parsing/model error -> heuristic
-            print(f"[agent:llm] selection failed ({error}); using heuristic.")
-            return self.fallback.select(stats, budget)
+        prompt = self._build_prompt(stats, budget)
+        out = self.llm.create_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=128,
+        )
+        text = out["choices"][0]["message"]["content"]
+        valid_ids = [s["client_id"] for s in stats]
+        chosen = self._parse_ids(text, valid_ids)
+        chosen = _enforce_budget(chosen, stats, budget)
+        print(f"[agent] selected B-uploaders: {sorted(chosen)}")
+        return chosen
 
 
 def _enforce_budget(chosen: List[int], stats: List[Dict], budget: float) -> List[int]:
@@ -125,6 +84,4 @@ def _enforce_budget(chosen: List[int], stats: List[Dict], budget: float) -> List
 
 
 def make_agent(config: Config):
-    if config.agent_kind == "llm":
-        return LLMAgent(config)
-    return HeuristicAgent()
+    return LLMAgent(config)

@@ -2,18 +2,13 @@
 numpy>=1.24
 torch>=2.1.0
 
-# LLM fine-tuning (clients)
 transformers>=4.44.0
 peft>=0.11.0
 datasets>=2.19.0
 accelerate>=0.30.0
 
-# Federated learning framework
 flwr[simulation]>=1.7.0,<1.13.0
 
-# Server-side selection agent (Gemma GGUF, text-only). Optional:
-# if not installed, the system falls back to the heuristic agent.
 llama-cpp-python>=0.2.70
 
-# Evaluation metrics (optional, used for generation benchmarks)
 rouge-score>=0.1.2
