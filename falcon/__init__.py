@@ -1,3 +1,3 @@
-"""FALCON: Federated Adaptive LoRA with Client-selective uploading via an agent."""
+"""FALCON: Federated-Agentic-LoRA-for-Constrained-Optimization-Networks."""
 
 __version__ = "0.1.0"

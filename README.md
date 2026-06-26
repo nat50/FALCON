@@ -1,6 +1,6 @@
 # FALCON
 
-**F**eder**A**ted **L**oRA with **C**lient-selective uploading via an **O**rchestratio**N** agent.
+**F**ederated-**A**gentic-**L**oRA-for-**C**onstrained-**O**ptimization-**N**etworks.
 
 Federated fine-tuning of an LLM with LoRA where a **server-side agent** decides, every
 round and per client, whether the client uploads only its **A** matrix (cheap, keeps the
