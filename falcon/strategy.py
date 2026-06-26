@@ -10,6 +10,7 @@ Communication cost is modelled per layer as proportional to rank (d is constant
 across clients), so we use rank directly as the cost unit.
 """
 
+import json
 from typing import Dict, List, Optional, Tuple
 
 import flwr as fl
@@ -21,6 +22,7 @@ from flwr.server.client_manager import ClientManager
 from flwr.server.client_proxy import ClientProxy
 
 from . import lora_math
+from .client import REQUEST_B_KEY, SELECTED_CLIENT_IDS_KEY
 from .config import Config
 from .serialization import decode, encode
 
@@ -38,6 +40,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
         self.mode = config.selection_mode
         self.global_blob = None
         self.selected = self._initial_selection()
+        self.requested_by_round: Dict[int, List[int]] = {}
 
     # ----- selection bookkeeping -----
     def _all_ids(self) -> List[int]:
@@ -79,12 +82,20 @@ class FalconStrategy(fl.server.strategy.Strategy):
     def configure_fit(self, server_round: int, parameters: Parameters,
                       client_manager: ClientManager) -> List[Tuple[ClientProxy, FitIns]]:
         global_params = ndarrays_to_parameters([encode(self.global_blob)])
+        selected = sorted(int(client_id) for client_id in self.selected)
+        selected_set = set(selected)
+        selected_json = json.dumps(selected)
+        self.requested_by_round[server_round] = selected
         instructions = []
         for proxy in client_manager.all().values():
-            request_b = int(proxy.cid) in set(self.selected)
-            fit_ins = FitIns(global_params, {"request_b": request_b})
+            request_b = int(proxy.cid) in selected_set
+            fit_config = {
+                REQUEST_B_KEY: 1 if request_b else 0,
+                SELECTED_CLIENT_IDS_KEY: selected_json,
+            }
+            fit_ins = FitIns(global_params, fit_config)
             instructions.append((proxy, fit_ins))
-        print(f"[server] round {server_round}: requesting B from {sorted(self.selected)}")
+        print(f"[server] round {server_round}: requesting B from {selected}")
         return instructions
 
     def aggregate_fit(self, server_round: int,
@@ -96,9 +107,13 @@ class FalconStrategy(fl.server.strategy.Strategy):
         payloads = [decode(parameters_to_ndarrays(res.parameters)[0])
                     for _, res in results]
 
+        requested_ids = set(self.requested_by_round.get(server_round, self.selected))
+        self._validate_b_uploads(payloads, requested_ids, server_round)
         align_by_client = self._compute_alignment(payloads)
-        b_client_ids = [p["client_id"] for p in payloads
-                        if p["request_b"] and self._has_B(p)]
+        b_client_ids = [
+            p["client_id"] for p in payloads
+            if p["client_id"] in requested_ids and p["request_b"] and self._has_B(p)
+        ]
         if b_client_ids:
             self.global_blob = self._merge_all_layers(
                 payloads, align_by_client, b_client_ids)
@@ -146,6 +161,38 @@ class FalconStrategy(fl.server.strategy.Strategy):
     @staticmethod
     def _has_B(payload) -> bool:
         return all(layer["B"] is not None for layer in payload["layers"].values())
+
+    def _validate_b_uploads(self, payloads, requested_ids, server_round: int) -> None:
+        payload_by_id = {p["client_id"]: p for p in payloads}
+        received_ids = set(payload_by_id)
+        missing_payloads = sorted(client_id for client_id in requested_ids
+                                  if client_id not in received_ids)
+        if missing_payloads:
+            raise RuntimeError(
+                f"round {server_round}: server requested B from "
+                f"{missing_payloads}, but those clients did not return payloads"
+            )
+
+        missing_selected = sorted(
+            client_id for client_id in requested_ids
+            if client_id in received_ids
+            and not self._has_B(payload_by_id[client_id])
+        )
+        if missing_selected:
+            raise RuntimeError(
+                f"round {server_round}: server requested B from "
+                f"{missing_selected}, but their payloads did not include B"
+            )
+
+        unexpected = sorted(
+            p["client_id"] for p in payloads
+            if p["client_id"] not in requested_ids and self._has_B(p)
+        )
+        if unexpected:
+            raise RuntimeError(
+                f"round {server_round}: clients {unexpected} uploaded B "
+                "without being selected"
+            )
 
     def _layer_keys(self, payloads) -> List[str]:
         return list(payloads[0]["layers"].keys())
