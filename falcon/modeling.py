@@ -1,4 +1,4 @@
-"""Qwen + LoRA model helpers: build, read/write LoRA factors, train, evaluate.
+"""Model + LoRA helpers: build, read/write LoRA factors, train, evaluate.
 
 Keeps all PyTorch/PEFT details in one place so the Flower client stays thin.
 LoRA naming in PEFT (per target module):

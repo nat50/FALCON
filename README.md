@@ -47,9 +47,8 @@ python run_experiments.py
 
 ## Notes / assumptions
 
-- **Client model**: defaults to `Qwen/Qwen2.5-0.5B-Instruct` (a known-good small Qwen).
-  The original request mentioned "Qwen 3.5 0.8B"; change `client_model_name` in the config
-  to your exact checkpoint id.
+- **Client model**: defaults to `Qwen/Qwen3-0.6B-Base`. Change `client_model_name` in the
+  config to your preferred checkpoint id.
 - **Agent model**: `google/gemma-4-E2B-it-qat-q4_0-gguf`, used text-only for the selection
   decision (no multimodal input).
 - Defaults are sized for a quick smoke test (6 clients, capped data). Increase

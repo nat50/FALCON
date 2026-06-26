@@ -11,9 +11,7 @@ from typing import List
 @dataclass
 class Config:
     # ----- Client model (LoRA fine-tuning target) -----
-    # NOTE: the user asked for "Qwen 3.5 0.8B". That exact id does not exist on the Hub,
-    # so we default to a small, known-good Qwen checkpoint. Change this to your preferred id.
-    client_model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"
+    client_model_name: str = "Qwen/Qwen3-0.6B-Base"
     lora_target_modules: List[str] = field(
         default_factory=lambda: ["q_proj", "v_proj"]
     )
@@ -32,7 +30,7 @@ class Config:
     local_batch_size: int = 4
     local_lr: float = 2e-4
     max_seq_len: int = 512
-    freeze_shared_A: bool = False  # see docs/THUAT_TOAN.md section 5
+    freeze_shared_A: bool = False
 
     # ----- Selection mode (baseline switch) -----
     # "fedsa"   : nobody uploads B  -> share consensus A only, keep B local (FedSA-LoRA).

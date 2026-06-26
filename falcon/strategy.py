@@ -1,6 +1,6 @@
 """Custom Flower strategy implementing the FALCON server logic.
 
-Responsibilities (see docs/THUAT_TOAN.md sections 3-4 and 8):
+Responsibilities:
   - configure_fit: broadcast the global blob and tell each client whether to send B.
   - aggregate_fit: build the consensus subspace from ALL A's, merge the B-clients'
     content, factorize into the new global (A_global, B_global), then run the agent

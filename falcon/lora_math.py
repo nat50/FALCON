@@ -1,10 +1,9 @@
 """Core LoRA aggregation math (pure NumPy, framework-independent).
 
-Implements the formulas from docs/THUAT_TOAN.md sections 3 and 5:
-  - consensus input subspace V from ALL client A matrices (3.1)
-  - weighted full-update average from B-clients, projected onto V (3.2 - 3.3)
-  - factorization back into a global (A_global, B_global) pair (3.3)
-  - per-client rank truncation and optional B re-alignment (5)
+  - consensus input subspace V from ALL client A matrices
+  - weighted full-update average from B-clients, projected onto V
+  - factorization back into a global (A_global, B_global) pair
+  - per-client rank truncation and optional B re-alignment
 
 Shape conventions for one LoRA layer:
   A : (r, k)   rows live in the input space  R^k
