@@ -51,5 +51,8 @@ python run_experiments.py
   config to your preferred checkpoint id.
 - **Agent model**: `google/gemma-4-E2B-it-qat-q4_0-gguf`, used text-only for the selection
   decision (no multimodal input).
+- **Datasets**: `falcon/data.py` currently supports `databricks/databricks-dolly-15k`,
+  `HuggingFaceH4/no_robots`, and `allenai/tulu-v2-sft-mixture`. Change
+  `dataset_name` in `falcon/config.py` to switch datasets.
 - Defaults are sized for a quick smoke test (6 clients, capped data). Increase
   `max_train_per_client`, `num_rounds`, and set `device = "cuda"` for real experiments.
