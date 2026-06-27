@@ -60,7 +60,10 @@ def run_simulation(config, client_data, client_ranks):
         num_clients=config.num_clients,
         config=fl.server.ServerConfig(num_rounds=config.num_rounds),
         strategy=strategy,
-        client_resources={"num_cpus": 1, "num_gpus": 0},
+        client_resources={
+            "num_cpus": config.num_cpus_per_client,
+            "num_gpus": config.num_gpus_per_client,
+        },
     )
 
 

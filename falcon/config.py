@@ -13,21 +13,21 @@ class Config:
     # ----- Client model (LoRA fine-tuning target) -----
     client_model_name: str = "Qwen/Qwen3-0.6B-Base"
     lora_target_modules: List[str] = field(
-        default_factory=lambda: ["q_proj", "v_proj"]
+        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"]
     )
-    lora_alpha: int = 16
-    lora_dropout: float = 0.0
+    lora_dropout: float = 0.05
 
     # ----- Heterogeneous ranks -----
     # Each client is assigned a rank from this pool (cycled by client index).
+    # LoRA alpha equals each client's rank (scale factor alpha/r = 1).
     client_rank_pool: List[int] = field(default_factory=lambda: [4, 8, 16])
     global_rank: int = 16  # rank R of the server-side global adapter
 
     # ----- Federation -----
     num_clients: int = 6
-    num_rounds: int = 5
-    local_epochs: int = 1
-    local_batch_size: int = 4
+    num_rounds: int = 10
+    local_epochs: int = 2
+    local_batch_size: int = 8
     local_lr: float = 2e-4
     max_seq_len: int = 512
     freeze_shared_A: bool = False
@@ -44,18 +44,24 @@ class Config:
     b_budget_fraction: float = 0.4
     # Gemma GGUF used by the LLM agent (text-only usage).
     agent_repo_id: str = "google/gemma-4-E2B-it-qat-q4_0-gguf"
-    agent_gguf_filename: str = "gemma-4-E2B-it-qat-q4_0.gguf"
+    agent_gguf_filename: str = "gemma-4-E2B_q4_0-it.gguf"
     agent_n_ctx: int = 4096
 
     # ----- Data -----
     dataset_name: str = "databricks/databricks-dolly-15k"
-    max_train_per_client: int = 200  # cap for fast runs; raise for real experiments
-    max_test_per_client: int = 40
+    # Dolly top-6 categories hold ~1.5k–3k examples each; these caps use most of each split.
+    max_train_per_client: int = 1500
+    max_test_per_client: int = 150
+
+    # ----- Flower simulation (Ray) -----
+    # One GPU slot per simulated client; set num_gpus_per_client=0 for CPU-only runs.
+    num_cpus_per_client: int = 2
+    num_gpus_per_client: float = 1.0
 
     # ----- Misc -----
     seed: int = 42
     state_dir: str = "./client_state"  # where clients persist their personal B
-    device: str = "cpu"  # "cuda" if a GPU is available
+    device: str = "cuda"
 
 
 def default_config() -> Config:
