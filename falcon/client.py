@@ -9,6 +9,7 @@ Per round:
   5. Upload A always; upload B only if the agent requested it this round.
 """
 
+import json
 from typing import Dict, List
 
 import flwr as fl
@@ -17,6 +18,9 @@ import numpy as np
 from . import lora_math, modeling, state_store
 from .config import Config
 from .serialization import decode, encode
+
+SELECTED_CLIENT_IDS_KEY = "selected_client_ids"
+REQUEST_B_KEY = "request_b"
 
 
 class FalconClient(fl.client.NumPyClient):
@@ -54,6 +58,34 @@ class FalconClient(fl.client.NumPyClient):
         b_by_layer = {key: b for key, (_, b) in factors.items()}
         state_store.save_personal_B(self.config.state_dir, self.client_id, b_by_layer)
 
+    def _should_upload_B(self, config: Dict) -> bool:
+        """Return whether this client was selected to upload B this round."""
+        if SELECTED_CLIENT_IDS_KEY in config:
+            try:
+                selected = json.loads(str(config[SELECTED_CLIENT_IDS_KEY]))
+                selected_ids = {int(client_id) for client_id in selected}
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"invalid {SELECTED_CLIENT_IDS_KEY}: "
+                    f"{config[SELECTED_CLIENT_IDS_KEY]!r}"
+                ) from exc
+            return self.client_id in selected_ids
+
+        if REQUEST_B_KEY not in config:
+            raise KeyError(
+                f"missing fit config '{REQUEST_B_KEY}' or "
+                f"'{SELECTED_CLIENT_IDS_KEY}'"
+            )
+
+        raw = config[REQUEST_B_KEY]
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, (int, float)):
+            return int(raw) == 1
+        if isinstance(raw, str):
+            return raw.strip().lower() in {"1", "true", "yes"}
+        raise ValueError(f"invalid {REQUEST_B_KEY}: {raw!r}")
+
     def fit(self, parameters: List[np.ndarray], config: Dict):
         self._apply_global(decode(parameters[0]))
         train_loss = modeling.train_local(
@@ -65,7 +97,7 @@ class FalconClient(fl.client.NumPyClient):
         factors = modeling.get_lora_AB(self.model)
         self._save_personal_B(factors)
 
-        request_b = bool(config.get("request_b", False))
+        request_b = self._should_upload_B(config)
         layers = {}
         for key, (a_mat, b_mat) in factors.items():
             layers[key] = {"A": a_mat, "B": b_mat if request_b else None}
