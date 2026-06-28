@@ -22,7 +22,6 @@ class Config:
     # LoRA alpha equals each client's rank (scale factor alpha/r = 1).
     client_rank_pool: List[int] = field(default_factory=lambda: [4, 8, 16])
     global_rank: int = 16  # rank R of the server-side global adapter
-    use_dynamic_rank: bool = False
     rank_alpha: float = 0.3
     rank_beta: float = 0.3
     rank_gamma: float = 0.4

@@ -35,10 +35,11 @@ def main() -> None:
     # Pretend only the last two clients uploaded B.
     b_clients = [b for _, b in clients[1:]]
     a_clients = [a for a, _ in clients[1:]]
-    weights = [1.0, 2.0]
+    n_samples = [10, 20]
+    rank_scores = [0.4, 0.8]
 
     a_global, b_global = lora_math.merge_layer(
-        a_all, b_clients, a_clients, weights, GLOBAL_RANK)
+        a_all, b_clients, a_clients, n_samples, GLOBAL_RANK, rank_scores)
     print(f"A_global shape = {a_global.shape} (expected ({GLOBAL_RANK}, {K_IN}))")
     print(f"B_global shape = {b_global.shape} (expected ({D_OUT}, {GLOBAL_RANK}))")
 

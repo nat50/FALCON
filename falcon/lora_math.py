@@ -11,7 +11,7 @@ Shape conventions for one LoRA layer:
   dW = B @ A : (d, k)
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import numpy as np
 
@@ -107,9 +107,7 @@ def merge_layer(
     a_clients: List[np.ndarray],
     n_samples: List[float],
     rank: int,
-    align_scores: Optional[List[float]] = None,
-    rank_scores: Optional[List[float]] = None,
-    use_dynamic_rank: bool = False,
+    rank_scores: List[float],
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Aggregate one LoRA layer across clients with heterogeneous ranks.
 
@@ -117,12 +115,9 @@ def merge_layer(
         a_all: A matrices from ALL clients (used for the consensus subspace).
         b_clients: B matrices from the clients that uploaded B.
         a_clients: matching A matrices for those same clients (same order as b_clients).
-        n_samples: sample counts for B-clients. If no align_scores are passed, this
-            acts like the legacy precomputed weight list.
+        n_samples: sample counts for B-clients.
         rank: global rank R to keep.
-        align_scores: alignment scores for B-clients.
-        rank_scores: dynamic rank scores for B-clients.
-        use_dynamic_rank: use S_i * n_i weights when True; otherwise align_i * n_i.
+        rank_scores: dynamic rank scores S_i for B-clients.
 
     Returns:
         (A_global (R, k), B_global (d, R)).
@@ -134,15 +129,7 @@ def merge_layer(
     k_in = a_all[0].shape[1]
     delta_bar = np.zeros((d_out, k_in), dtype=np.float64)
     samples = np.asarray(n_samples, dtype=np.float64)
-    if use_dynamic_rank:
-        if rank_scores is None:
-            raise ValueError("rank_scores are required when use_dynamic_rank=True")
-        score_basis = np.asarray(rank_scores, dtype=np.float64)
-    elif align_scores is not None:
-        score_basis = np.asarray(align_scores, dtype=np.float64)
-    else:
-        score_basis = np.ones_like(samples)
-    weights = score_basis * samples
+    weights = np.asarray(rank_scores, dtype=np.float64) * samples
     weight_sum = float(np.sum(weights)) or 1.0
     for b_mat, a_mat, w in zip(b_clients, a_clients, weights):
         delta_bar += (w / weight_sum) * (b_mat @ a_mat)

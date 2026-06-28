@@ -3,7 +3,8 @@
 Baselines (all share one pipeline; only the B-upload policy differs):
     fedsa    - share consensus A only, keep B local (FedSA-LoRA).
     flexlora - every client uploads B every round (full aggregation).
-    falcon   - the agent selects B-uploaders under a communication budget (ours).
+    falcon   - dynamic rank/weight FALCON; the agent selects B-uploaders
+               under a communication budget (ours).
 
 Reported per baseline:
     final mean eval loss (lower is better)  and  total communication cost.
@@ -46,7 +47,7 @@ def main() -> None:
 
         config = dataclasses.replace(base, selection_mode=mode, state_dir=state_dir)
         set_seed(base.seed)  # same init for a fair comparison
-        history = run_simulation(config, client_data, client_ranks)
+        history = run_simulation(config, client_data, client_ranks.copy())
         results[mode] = (_final_loss(history), _total_comm(history))
 
     print("\n===== comparison =====")
