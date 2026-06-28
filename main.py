@@ -12,6 +12,7 @@ import random
 import flwr as fl
 import numpy as np
 import torch
+from flwr.common import Context
 
 from falcon import data
 from falcon.agent import make_agent
@@ -87,8 +88,8 @@ def _write_outputs(logger, config, history, strategy):
 
 def run_simulation(config, client_data, client_ranks, logger):
     """Run the FALCON simulation and persist its results."""
-    def client_fn(cid: str):
-        client_id = int(cid)
+    def client_fn(context: Context):
+        client_id = int(context.node_config["partition-id"])
         return FalconClient(
             client_id=client_id,
             rank=client_ranks[client_id],

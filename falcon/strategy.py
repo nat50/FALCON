@@ -28,6 +28,18 @@ from .config import Config
 from .serialization import decode, encode
 
 
+def _partition_id(proxy: ClientProxy) -> int:
+    """Return the logical client index (0..num_clients-1).
+
+    Flower Ray VCE sets proxy.cid to a node_id hash; partition_id holds the
+    dataset index that client_ranks and payloads use.
+    """
+    pid = getattr(proxy, "partition_id", None)
+    if pid is not None:
+        return int(pid)
+    return int(proxy.cid)
+
+
 class FalconStrategy(fl.server.strategy.Strategy):
     def __init__(self, config: Config, agent, client_ranks: Dict[int, int]):
         self.config = config
@@ -93,7 +105,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
         self.requested_by_round[server_round] = selected
         instructions = []
         for proxy in client_manager.all().values():
-            client_id = int(proxy.cid)
+            client_id = _partition_id(proxy)
             request_b = client_id in selected_set
             fit_config = {
                 REQUEST_B_KEY: 1 if request_b else 0,
@@ -160,7 +172,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
         global_params = ndarrays_to_parameters([encode(self.global_blob)])
         instructions = []
         for proxy in client_manager.all().values():
-            client_id = int(proxy.cid)
+            client_id = _partition_id(proxy)
             eval_config = {NEW_RANK_KEY: self.client_ranks[client_id]}
             instructions.append((proxy, EvaluateIns(global_params, eval_config)))
         return instructions
