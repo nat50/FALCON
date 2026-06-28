@@ -45,6 +45,19 @@ python run_experiments.py
 `run_experiments.py` runs the three on the same data and reports
 **final eval loss** vs **total communication cost** — the core table/figure for the paper.
 
+Run outputs are saved under `outputs/results/`. A single `python main.py` run writes
+`history.json`, `summary.csv`, and `clients.csv` under:
+
+```text
+outputs/results/<dataset>/<method>/<timestamp>/
+```
+
+`python run_experiments.py` also writes a cross-method comparison under:
+
+```text
+outputs/results/<dataset>/comparison/<timestamp>/
+```
+
 ## Notes / assumptions
 
 - **Client model**: defaults to `Qwen/Qwen3-0.6B-Base`. Change `client_model_name` in the

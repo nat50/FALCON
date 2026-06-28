@@ -2,3 +2,4 @@
 __pycache__/
 .DS_Store
 DATASETS_AND_EVALUATION.md
+outputs/
