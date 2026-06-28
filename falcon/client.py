@@ -21,6 +21,7 @@ from .serialization import decode, encode
 
 SELECTED_CLIENT_IDS_KEY = "selected_client_ids"
 REQUEST_B_KEY = "request_b"
+NEW_RANK_KEY = "new_rank"
 
 
 class FalconClient(fl.client.NumPyClient):
@@ -38,17 +39,57 @@ class FalconClient(fl.client.NumPyClient):
         if config.freeze_shared_A:
             modeling.freeze_A(self.model)
 
+    def _ensure_rank(self, rank: int) -> None:
+        """Rebuild the local LoRA adapter if the server assigned a new rank."""
+        if rank == self.rank:
+            return
+        self.rank = rank
+        self.model, self.tokenizer = modeling.build_model(
+            self.config.client_model_name, rank, self.config.lora_target_modules,
+            rank, self.config.lora_dropout, self.config.device,
+        )
+        if self.config.freeze_shared_A:
+            modeling.freeze_A(self.model)
+
+    def _rank_from_config(self, config: Dict) -> int:
+        """Read the server-assigned rank, defaulting to the current local rank."""
+        raw = config.get(NEW_RANK_KEY, self.rank)
+        try:
+            rank = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid {NEW_RANK_KEY}: {raw!r}") from exc
+        if rank <= 0:
+            raise ValueError(f"{NEW_RANK_KEY} must be positive, got {rank}")
+        return rank
+
     def _apply_global(self, global_blob) -> None:
         """Install the shared A and pick B (personal if available, else shared init)."""
         if global_blob is None:
             return  # cold start: keep the random LoRA init
         personal_b = state_store.load_personal_B(self.config.state_dir, self.client_id)
         for key, (a_global, b_global) in global_blob.items():
+            if a_global.shape[0] < self.rank:
+                raise ValueError(
+                    f"global A for {key} has rank {a_global.shape[0]}, "
+                    f"cannot serve client rank {self.rank}"
+                )
             modeling.set_lora_factor(self.model, key, "A", a_global[: self.rank, :])
 
             if personal_b and key in personal_b:
-                b_local = personal_b[key]               # keep my personalized B
+                b_saved = personal_b[key]
+                if b_saved.shape[1] >= self.rank:
+                    b_local = b_saved[:, : self.rank]   # keep/truncate my personalized B
+                elif b_global is not None and b_global.shape[1] >= self.rank:
+                    b_local = b_global[:, : self.rank].copy()
+                    b_local[:, : b_saved.shape[1]] = b_saved
+                else:
+                    continue
             elif b_global is not None:
+                if b_global.shape[1] < self.rank:
+                    raise ValueError(
+                        f"global B for {key} has rank {b_global.shape[1]}, "
+                        f"cannot serve client rank {self.rank}"
+                    )
                 b_local = b_global[:, : self.rank]      # warm-start from shared B
             else:
                 continue                                 # FedSA + no personal B yet: keep current
@@ -87,10 +128,19 @@ class FalconClient(fl.client.NumPyClient):
         raise ValueError(f"invalid {REQUEST_B_KEY}: {raw!r}")
 
     def fit(self, parameters: List[np.ndarray], config: Dict):
+        self._ensure_rank(self._rank_from_config(config))
         self._apply_global(decode(parameters[0]))
+        loss_before = modeling.eval_loss(
+            self.model, self.tokenizer, self.train_texts,
+            self.config.local_batch_size, self.config.max_seq_len, self.config.device,
+        )
         train_loss = modeling.train_local(
             self.model, self.tokenizer, self.train_texts,
             self.config.local_lr, self.config.local_epochs,
+            self.config.local_batch_size, self.config.max_seq_len, self.config.device,
+        )
+        loss_after = modeling.eval_loss(
+            self.model, self.tokenizer, self.train_texts,
             self.config.local_batch_size, self.config.max_seq_len, self.config.device,
         )
 
@@ -106,12 +156,20 @@ class FalconClient(fl.client.NumPyClient):
             "client_id": self.client_id,
             "rank": self.rank,
             "num_examples": len(self.train_texts),
+            "loss_before": loss_before,
+            "loss_after": loss_after,
             "request_b": request_b,
             "layers": layers,
         }
-        metrics = {"client_id": self.client_id, "train_loss": train_loss}
-        print(f"[client {self.client_id}] trained (loss={train_loss:.4f}, "
-              f"sent_B={request_b})")
+        metrics = {
+            "client_id": self.client_id,
+            "train_loss": train_loss,
+            "loss_before": loss_before,
+            "loss_after": loss_after,
+        }
+        print(f"[client {self.client_id}] trained "
+              f"(loss_before={loss_before:.4f}, loss_after={loss_after:.4f}, "
+              f"sent_B={request_b}, rank={self.rank})")
         return [encode(payload)], len(self.train_texts), metrics
 
     def evaluate(self, parameters: List[np.ndarray], config: Dict):
