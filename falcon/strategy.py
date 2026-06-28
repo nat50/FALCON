@@ -5,6 +5,7 @@ Responsibilities:
   - aggregate_fit: build the consensus subspace from ALL A's, merge the B-clients'
     content, factorize into the new global (A_global, B_global), then run the agent
     to choose who uploads B next round.
+  - aggregate_evaluate: average per-client eval loss and record it per round.
 
 Communication cost is modelled per layer as proportional to rank (d is constant
 across clients), so we use rank directly as the cost unit.
@@ -35,32 +36,31 @@ class FalconStrategy(fl.server.strategy.Strategy):
         self.total_rank = 0.0
         self.budget = 0.0
         self._refresh_budget()
-        self.mode = config.selection_mode
         self.global_blob = None
-        self.selected = self._initial_selection()
+        self.selected = self._bootstrap_selection()
         self.requested_by_round: Dict[int, List[int]] = {}
+        self.per_client_eval: Dict[int, Dict[int, float]] = {}
+        self.pending_ranks: Dict[int, int] = {}
 
     # ----- selection bookkeeping -----
-    def _all_ids(self) -> List[int]:
-        return list(self.client_ranks.keys())
-
     def _server_rank(self) -> int:
-        return max(self.config.global_rank, max(self.config.rank_pool))
+        return max(self.config.rank_pool)
 
-    def _refresh_budget(self) -> None:
-        self.total_rank = float(sum(self.client_ranks.values()))
+    def _apply_pending_ranks(self) -> None:
+        """Promote ranks computed last round so fit/eval use the same rank."""
+        if not self.pending_ranks:
+            return
+        self.client_ranks.update(self.pending_ranks)
+        self.pending_ranks.clear()
+        self._refresh_budget()
+
+    def _refresh_budget(self, ranks: Optional[Dict[int, int]] = None) -> None:
+        active = ranks if ranks is not None else self.client_ranks
+        self.total_rank = float(sum(active.values()))
         self.budget = max(
             self.config.b_budget_fraction * self.total_rank,
-            float(min(self.client_ranks.values())),
+            float(min(active.values())),
         )
-
-    def _initial_selection(self) -> List[int]:
-        """Pick the round-1 B-uploaders according to the baseline mode."""
-        if self.mode == "flexlora":
-            return self._all_ids()
-        if self.mode == "fedsa":
-            return []
-        return self._bootstrap_selection()  # falcon
 
     def _bootstrap_selection(self) -> List[int]:
         """Round 1 has no alignment yet: spend the budget on the cheapest clients."""
@@ -73,12 +73,8 @@ class FalconStrategy(fl.server.strategy.Strategy):
         return chosen or [by_cost[0][0]]
 
     def _decide_selection(self, stats) -> List[int]:
-        """Choose next round's B-uploaders according to the baseline mode."""
-        if self.mode == "flexlora":
-            return [s["client_id"] for s in stats]
-        if self.mode == "fedsa":
-            return []
-        chosen = self.agent.select(stats, self.budget)  # falcon
+        """Ask the agent to choose next round's B-uploaders under the budget."""
+        chosen = self.agent.select(stats, self.budget)
         if not chosen:
             chosen = [max(stats, key=lambda s: s["align"])["client_id"]]
         return chosen
@@ -89,6 +85,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
 
     def configure_fit(self, server_round: int, parameters: Parameters,
                       client_manager: ClientManager) -> List[Tuple[ClientProxy, FitIns]]:
+        self._apply_pending_ranks()
         global_params = ndarrays_to_parameters([encode(self.global_blob)])
         selected = sorted(int(client_id) for client_id in self.selected)
         selected_set = set(selected)
@@ -130,17 +127,18 @@ class FalconStrategy(fl.server.strategy.Strategy):
             self.global_blob = self._merge_all_layers(
                 payloads, rank_scores_by_client, b_client_ids)
         else:
-            # No B this round (e.g. FedSA mode): share the consensus A only.
+            # No B available this round: share the consensus A only.
             self.global_blob = self._consensus_only_blob(payloads)
 
-        self.client_ranks.update(new_ranks)
-        self._refresh_budget()
+        self.pending_ranks = new_ranks
+        next_ranks = {**self.client_ranks, **new_ranks}
+        self._refresh_budget(next_ranks)
         stats = [{
             "client_id": p["client_id"],
             "align": align_by_client[p["client_id"]],
             "num_examples": p["num_examples"],
-            "rank": self.client_ranks[p["client_id"]],
-            "cost": float(self.client_ranks[p["client_id"]]),
+            "rank": next_ranks[p["client_id"]],
+            "cost": float(next_ranks[p["client_id"]]),
         } for p in payloads]
         self.selected = self._decide_selection(stats)
 
@@ -160,8 +158,12 @@ class FalconStrategy(fl.server.strategy.Strategy):
                            client_manager: ClientManager
                            ) -> List[Tuple[ClientProxy, EvaluateIns]]:
         global_params = ndarrays_to_parameters([encode(self.global_blob)])
-        eval_ins = EvaluateIns(global_params, {})
-        return [(proxy, eval_ins) for proxy in client_manager.all().values()]
+        instructions = []
+        for proxy in client_manager.all().values():
+            client_id = int(proxy.cid)
+            eval_config = {NEW_RANK_KEY: self.client_ranks[client_id]}
+            instructions.append((proxy, EvaluateIns(global_params, eval_config)))
+        return instructions
 
     def aggregate_evaluate(self, server_round: int,
                            results: List[Tuple[ClientProxy, EvaluateRes]],
@@ -171,6 +173,10 @@ class FalconStrategy(fl.server.strategy.Strategy):
         total = sum(res.num_examples for _, res in results)
         weighted = sum(res.loss * res.num_examples for _, res in results)
         mean_loss = weighted / max(total, 1)
+        self.per_client_eval[server_round] = {
+            int(res.metrics["client_id"]): float(res.loss)
+            for _, res in results
+        }
         print(f"[server] round {server_round}: mean eval loss = {mean_loss:.4f}")
         return float(mean_loss), {"mean_eval_loss": mean_loss}
 
@@ -268,7 +274,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
         return blob
 
     def _consensus_only_blob(self, payloads):
-        """FedSA-style global: shared consensus A per layer, no shared B (B stays local)."""
+        """Fallback global with shared consensus A per layer and no shared B."""
         blob = {}
         for key in self._layer_keys(payloads):
             a_all = [p["layers"][key]["A"] for p in payloads]

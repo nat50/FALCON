@@ -68,13 +68,6 @@ def set_lora_factor(model, key: str, which: str, value: np.ndarray) -> None:
     raise KeyError(f"LoRA parameter not found: {target}")
 
 
-def freeze_A(model) -> None:
-    """Disable gradients on every LoRA A matrix (used when freeze_shared_A=True)."""
-    for name, param in model.named_parameters():
-        if name.endswith(_A_SUFFIX):
-            param.requires_grad = False
-
-
 def _encode(tokenizer, texts: List[str], max_len: int):
     batch = tokenizer(
         texts, truncation=True, padding="max_length",

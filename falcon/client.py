@@ -36,8 +36,6 @@ class FalconClient(fl.client.NumPyClient):
             config.client_model_name, rank, config.lora_target_modules,
             rank, config.lora_dropout, config.device,
         )
-        if config.freeze_shared_A:
-            modeling.freeze_A(self.model)
 
     def _ensure_rank(self, rank: int) -> None:
         """Rebuild the local LoRA adapter if the server assigned a new rank."""
@@ -48,8 +46,6 @@ class FalconClient(fl.client.NumPyClient):
             self.config.client_model_name, rank, self.config.lora_target_modules,
             rank, self.config.lora_dropout, self.config.device,
         )
-        if self.config.freeze_shared_A:
-            modeling.freeze_A(self.model)
 
     def _rank_from_config(self, config: Dict) -> int:
         """Read the server-assigned rank, defaulting to the current local rank."""
@@ -92,7 +88,7 @@ class FalconClient(fl.client.NumPyClient):
                     )
                 b_local = b_global[:, : self.rank]      # warm-start from shared B
             else:
-                continue                                 # FedSA + no personal B yet: keep current
+                continue                                 # no shared/personal B yet: keep current
             modeling.set_lora_factor(self.model, key, "B", b_local)
 
     def _save_personal_B(self, factors: Dict[str, tuple]) -> None:
@@ -173,6 +169,7 @@ class FalconClient(fl.client.NumPyClient):
         return [encode(payload)], len(self.train_texts), metrics
 
     def evaluate(self, parameters: List[np.ndarray], config: Dict):
+        self._ensure_rank(self._rank_from_config(config))
         self._apply_global(decode(parameters[0]))
         loss = modeling.eval_loss(
             self.model, self.tokenizer, self.test_texts,

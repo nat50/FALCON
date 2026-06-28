@@ -18,29 +18,20 @@ class Config:
     lora_dropout: float = 0.05
 
     # ----- Heterogeneous ranks -----
-    # Each client is assigned a rank from this pool (cycled by client index).
+    # Discrete ranks for initial assignment and per-round dynamic allocation.
     # LoRA alpha equals each client's rank (scale factor alpha/r = 1).
-    client_rank_pool: List[int] = field(default_factory=lambda: [4, 8, 16])
-    global_rank: int = 16  # rank R of the server-side global adapter
+    rank_pool: List[int] = field(default_factory=lambda: [4, 8, 16, 32])
     rank_alpha: float = 0.3
     rank_beta: float = 0.3
     rank_gamma: float = 0.4
-    rank_pool: List[int] = field(default_factory=lambda: [4, 8, 16, 32])
 
     # ----- Federation -----
-    num_clients: int = 6
+    num_clients: int = 10
     num_rounds: int = 10
     local_epochs: int = 2
     local_batch_size: int = 8
     local_lr: float = 2e-4
-    max_seq_len: int = 512
-    freeze_shared_A: bool = False
-
-    # ----- Selection mode (baseline switch) -----
-    # "fedsa"   : nobody uploads B  -> share consensus A only, keep B local (FedSA-LoRA).
-    # "flexlora": everybody uploads B -> full aggregation every round (FlexLoRA-style).
-    # "falcon"  : the agent picks who uploads B under the budget (ours).
-    selection_mode: str = "falcon"
+    max_seq_len: int = 1024
 
     # ----- Agent / selection budget -----
     # Communication budget for uploading B, expressed as a fraction of the
@@ -52,19 +43,18 @@ class Config:
     agent_n_ctx: int = 4096
 
     # ----- Data -----
-    dataset_name: str = "databricks/databricks-dolly-15k"
-    # Dolly top-6 categories hold ~1.5k–3k examples each; these caps use most of each split.
-    max_train_per_client: int = 1500
-    max_test_per_client: int = 150
+    data_path: str = "./data/fed_wildchat.json"
+    eval_fraction: float = 0.1
 
     # ----- Flower simulation (Ray) -----
-    # One GPU slot per simulated client; set num_gpus_per_client=0 for CPU-only runs.
-    num_cpus_per_client: int = 2
-    num_gpus_per_client: float = 1.0
+    # Fraction of a GPU per simulated client; set num_gpus_per_client=0 for CPU-only runs.
+    num_cpus_per_client: int = 4
+    num_gpus_per_client: float = 0.5
 
     # ----- Misc -----
     seed: int = 42
     state_dir: str = "./client_state"  # where clients persist their personal B
+    output_dir: str = "./output"
     device: str = "cuda"
 
 

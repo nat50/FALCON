@@ -1,88 +1,82 @@
-"""Non-IID client data built from databricks-dolly-15k.
+"""Federated client datasets built from Fed-WildChat (FedLLM-Bench).
 
-Each Dolly `category` (open_qa, classification, summarization, ...) becomes one
-client. This yields a natural non-IID split: instruction-following is the shared
-"common knowledge", while the per-category style/format is the "private" part.
+The raw file is a JSON object mapping each source user id to a list of
+{"instruction", "response"} samples. Users are merged into a fixed number of
+clients (balanced by sample count) to form the federation, and each client
+holds out a fraction of its data for evaluation.
 
 Each client returns plain lists of formatted text strings, so the client trainer
 stays simple and framework-agnostic.
 """
 
+import json
 import random
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-from datasets import load_dataset
-
-PROMPT_WITH_CONTEXT = (
-    "### Instruction:\n{instruction}\n\n"
-    "### Input:\n{context}\n\n"
-    "### Response:\n{response}"
-)
-PROMPT_NO_CONTEXT = (
+PROMPT_TEMPLATE = (
     "### Instruction:\n{instruction}\n\n"
     "### Response:\n{response}"
 )
 
 
 def format_example(example: dict) -> str:
-    """Render one Dolly row into a single training string."""
-    context = (example.get("context") or "").strip()
-    if context:
-        return PROMPT_WITH_CONTEXT.format(
-            instruction=example["instruction"].strip(),
-            context=context,
-            response=example["response"].strip(),
-        )
-    return PROMPT_NO_CONTEXT.format(
-        instruction=example["instruction"].strip(),
-        response=example["response"].strip(),
+    """Render one sample into a single training string."""
+    return PROMPT_TEMPLATE.format(
+        instruction=str(example.get("instruction", "")).strip(),
+        response=str(example.get("response", "")).strip(),
     )
 
 
+def _load_users(data_path: str) -> Dict[str, List[str]]:
+    """Read the raw JSON and return {user_id: [formatted_text, ...]}."""
+    with open(data_path, "r", encoding="utf-8") as handle:
+        raw = json.load(handle)
+    return {
+        user_id: [format_example(sample) for sample in samples]
+        for user_id, samples in raw.items()
+    }
+
+
+def _merge_users_into_clients(
+    users: Dict[str, List[str]], num_clients: int
+) -> Tuple[List[List[str]], List[int]]:
+    """Greedily assign whole users to clients, balancing total sample counts."""
+    texts_bins: List[List[str]] = [[] for _ in range(num_clients)]
+    user_counts = [0] * num_clients
+    sizes = [0] * num_clients
+    ordered = sorted(users.values(), key=len, reverse=True)
+    for texts in ordered:
+        target = min(range(num_clients), key=lambda i: sizes[i])
+        texts_bins[target].extend(texts)
+        sizes[target] += len(texts)
+        user_counts[target] += 1
+    return texts_bins, user_counts
+
+
 def load_client_datasets(
-    dataset_name: str,
+    data_path: str,
     num_clients: int,
-    max_train: int,
-    max_test: int,
+    eval_fraction: float,
     seed: int,
 ) -> Dict[int, Dict[str, List[str]]]:
-    """Group Dolly by category and turn the top-N categories into clients.
+    """Build per-client train/eval splits from the Fed-WildChat JSON file.
 
     Returns:
-        {client_id: {"train": [str, ...], "test": [str, ...], "category": str}}
+        {client_id: {"train": [str, ...], "eval": [str, ...]}}
     """
     rng = random.Random(seed)
-    dataset = load_dataset(dataset_name, split="train")
-
-    by_category: Dict[str, List[str]] = {}
-    for row in dataset:
-        by_category.setdefault(row["category"], []).append(format_example(row))
-
-    # Pick the largest categories so every client has enough data.
-    categories = sorted(by_category, key=lambda c: len(by_category[c]), reverse=True)
-    categories = categories[:num_clients]
+    users = _load_users(data_path)
+    texts_bins, user_counts = _merge_users_into_clients(users, num_clients)
 
     clients: Dict[int, Dict[str, List[str]]] = {}
-    for client_id, category in enumerate(categories):
-        texts = by_category[category]
+    for client_id, texts in enumerate(texts_bins):
         rng.shuffle(texts)
-        test = texts[:max_test]
-        train = texts[max_test : max_test + max_train]
-        clients[client_id] = {"train": train, "test": test, "category": category}
+        n_eval = int(len(texts) * eval_fraction)
+        eval_texts = texts[:n_eval]
+        train_texts = texts[n_eval:]
+        clients[client_id] = {"train": train_texts, "eval": eval_texts}
         print(
-            f"[data] client {client_id} <- category '{category}': "
-            f"{len(train)} train / {len(test)} test"
+            f"[data] client {client_id}: {len(train_texts)} train / "
+            f"{len(eval_texts)} eval ({user_counts[client_id]} users)"
         )
     return clients
-
-
-def build_global_testset(
-    clients: Dict[int, Dict[str, List[str]]], per_client: int, seed: int
-) -> List[str]:
-    """Mix a few test samples from every client to measure shared knowledge."""
-    rng = random.Random(seed)
-    mixed: List[str] = []
-    for client in clients.values():
-        mixed.extend(client["test"][:per_client])
-    rng.shuffle(mixed)
-    return mixed
