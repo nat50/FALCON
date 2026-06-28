@@ -28,7 +28,7 @@ class Config:
     # ----- Federation -----
     num_clients: int = 10
     num_rounds: int = 30
-    local_epochs: int = 2
+    local_epochs: int = 1
     local_batch_size: int = 8
     local_lr: float = 2e-4
     max_seq_len: int = 1024
