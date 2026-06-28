@@ -17,6 +17,7 @@ import os
 import shutil
 
 from falcon.config import default_config
+from falcon.results import save_comparison, save_run_results, summarize_history
 from main import load_data_and_ranks, run_simulation, set_seed
 
 MODES = ["fedsa", "flexlora", "falcon"]
@@ -38,6 +39,7 @@ def main() -> None:
     client_data, client_ranks = load_data_and_ranks(base)
 
     results = {}
+    comparison_rows = []
     for mode in MODES:
         print(f"\n===== running baseline: {mode} =====")
         state_dir = f"./client_state_{mode}"
@@ -47,13 +49,16 @@ def main() -> None:
         config = dataclasses.replace(base, selection_mode=mode, state_dir=state_dir)
         set_seed(base.seed)  # same init for a fair comparison
         history = run_simulation(config, client_data, client_ranks)
+        save_run_results(history, config, client_data, client_ranks)
         results[mode] = (_final_loss(history), _total_comm(history))
+        comparison_rows.append(summarize_history(history, config))
 
     print("\n===== comparison =====")
     print(f"{'mode':<10}{'final_eval_loss':>18}{'total_comm_cost':>18}")
     for mode in MODES:
         loss, comm = results[mode]
         print(f"{mode:<10}{loss:>18.4f}{comm:>18.0f}")
+    save_comparison(comparison_rows, base)
 
 
 if __name__ == "__main__":

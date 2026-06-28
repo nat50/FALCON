@@ -17,6 +17,7 @@ from falcon import data
 from falcon.agent import make_agent
 from falcon.client import FalconClient
 from falcon.config import default_config
+from falcon.results import save_run_results
 from falcon.strategy import FalconStrategy
 
 
@@ -44,6 +45,11 @@ def load_data_and_ranks(config):
 
 def run_simulation(config, client_data, client_ranks):
     """Run one Flower simulation and return its History object."""
+    client_groups = {
+        client_id: split.get("category", "")
+        for client_id, split in client_data.items()
+    }
+
     def client_fn(cid: str):
         client_id = int(cid)
         return FalconClient(
@@ -54,7 +60,12 @@ def run_simulation(config, client_data, client_ranks):
             config=config,
         ).to_client()
 
-    strategy = FalconStrategy(config, make_agent(config), client_ranks)
+    strategy = FalconStrategy(
+        config,
+        make_agent(config),
+        client_ranks,
+        client_groups=client_groups,
+    )
     return fl.simulation.start_simulation(
         client_fn=client_fn,
         num_clients=config.num_clients,
@@ -71,7 +82,8 @@ def main() -> None:
     config = default_config()
     set_seed(config.seed)
     client_data, client_ranks = load_data_and_ranks(config)
-    run_simulation(config, client_data, client_ranks)
+    history = run_simulation(config, client_data, client_ranks)
+    save_run_results(history, config, client_data, client_ranks)
 
 
 if __name__ == "__main__":
