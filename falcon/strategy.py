@@ -22,7 +22,7 @@ from flwr.server.client_manager import ClientManager
 from flwr.server.client_proxy import ClientProxy
 
 from . import lora_math
-from .client import REQUEST_B_KEY, SELECTED_CLIENT_IDS_KEY
+from .client import NEW_RANK_KEY, REQUEST_B_KEY, SELECTED_CLIENT_IDS_KEY
 from .config import Config
 from .serialization import decode, encode
 
@@ -32,11 +32,9 @@ class FalconStrategy(fl.server.strategy.Strategy):
         self.config = config
         self.agent = agent
         self.client_ranks = client_ranks
-        self.total_rank = float(sum(client_ranks.values()))
-        self.budget = max(
-            config.b_budget_fraction * self.total_rank,
-            float(min(client_ranks.values())),
-        )
+        self.total_rank = 0.0
+        self.budget = 0.0
+        self._refresh_budget()
         self.mode = config.selection_mode
         self.global_blob = None
         self.selected = self._initial_selection()
@@ -45,6 +43,18 @@ class FalconStrategy(fl.server.strategy.Strategy):
     # ----- selection bookkeeping -----
     def _all_ids(self) -> List[int]:
         return list(self.client_ranks.keys())
+
+    def _server_rank(self) -> int:
+        if self.config.use_dynamic_rank:
+            return max(self.config.global_rank, max(self.config.rank_pool))
+        return self.config.global_rank
+
+    def _refresh_budget(self) -> None:
+        self.total_rank = float(sum(self.client_ranks.values()))
+        self.budget = max(
+            self.config.b_budget_fraction * self.total_rank,
+            float(min(self.client_ranks.values())),
+        )
 
     def _initial_selection(self) -> List[int]:
         """Pick the round-1 B-uploaders according to the baseline mode."""
@@ -88,10 +98,12 @@ class FalconStrategy(fl.server.strategy.Strategy):
         self.requested_by_round[server_round] = selected
         instructions = []
         for proxy in client_manager.all().values():
-            request_b = int(proxy.cid) in selected_set
+            client_id = int(proxy.cid)
+            request_b = client_id in selected_set
             fit_config = {
                 REQUEST_B_KEY: 1 if request_b else 0,
                 SELECTED_CLIENT_IDS_KEY: selected_json,
+                NEW_RANK_KEY: self.client_ranks[client_id],
             }
             fit_ins = FitIns(global_params, fit_config)
             instructions.append((proxy, fit_ins))
@@ -110,22 +122,27 @@ class FalconStrategy(fl.server.strategy.Strategy):
         requested_ids = set(self.requested_by_round.get(server_round, self.selected))
         self._validate_b_uploads(payloads, requested_ids, server_round)
         align_by_client = self._compute_alignment(payloads)
+        rank_scores_by_client = self._compute_rank_scores(payloads, align_by_client)
+        new_ranks = self._allocate_new_ranks(payloads, rank_scores_by_client)
         b_client_ids = [
             p["client_id"] for p in payloads
             if p["client_id"] in requested_ids and p["request_b"] and self._has_B(p)
         ]
         if b_client_ids:
             self.global_blob = self._merge_all_layers(
-                payloads, align_by_client, b_client_ids)
+                payloads, align_by_client, rank_scores_by_client, b_client_ids)
         else:
             # No B this round (e.g. FedSA mode): share the consensus A only.
             self.global_blob = self._consensus_only_blob(payloads)
 
+        self.client_ranks.update(new_ranks)
+        self._refresh_budget()
         stats = [{
             "client_id": p["client_id"],
             "align": align_by_client[p["client_id"]],
             "num_examples": p["num_examples"],
-            "cost": float(p["rank"]),
+            "rank": self.client_ranks[p["client_id"]],
+            "cost": float(self.client_ranks[p["client_id"]]),
         } for p in payloads]
         self.selected = self._decide_selection(stats)
 
@@ -133,6 +150,10 @@ class FalconStrategy(fl.server.strategy.Strategy):
         print(f"[server] round {server_round}: merged "
               f"(B from {sorted(b_client_ids)}), comm_cost={comm_cost:.0f}")
         metrics = {"comm_cost": comm_cost, "num_b_uploaders": len(b_client_ids)}
+        if self.config.use_dynamic_rank:
+            metrics["mean_rank_score"] = (
+                sum(rank_scores_by_client.values()) / max(len(rank_scores_by_client), 1)
+            )
         return ndarrays_to_parameters([encode(self.global_blob)]), metrics
 
     def configure_evaluate(self, server_round: int, parameters: Parameters,
@@ -203,18 +224,44 @@ class FalconStrategy(fl.server.strategy.Strategy):
         align_sum = {p["client_id"]: 0.0 for p in payloads}
         for key in keys:
             a_all = [p["layers"][key]["A"] for p in payloads]
-            v_basis = lora_math.consensus_subspace(a_all, self.config.global_rank)
+            v_basis = lora_math.consensus_subspace(a_all, self._server_rank())
             proj = lora_math.projector(v_basis)
             for p in payloads:
                 align_sum[p["client_id"]] += lora_math.alignment_score(
                     p["layers"][key]["A"], proj)
         return {cid: total / max(len(keys), 1) for cid, total in align_sum.items()}
 
-    def _merge_all_layers(self, payloads, align_by_client, b_client_ids):
+    def _compute_rank_scores(self, payloads, align_by_client) -> Dict[int, float]:
+        if not self.config.use_dynamic_rank:
+            return {p["client_id"]: align_by_client[p["client_id"]] for p in payloads}
+
+        scores = lora_math.compute_rank_scores(
+            [p["num_examples"] for p in payloads],
+            [p["loss_before"] for p in payloads],
+            [p["loss_after"] for p in payloads],
+            [align_by_client[p["client_id"]] for p in payloads],
+            self.config.rank_alpha,
+            self.config.rank_beta,
+            self.config.rank_gamma,
+        )
+        return {p["client_id"]: float(score) for p, score in zip(payloads, scores)}
+
+    def _allocate_new_ranks(self, payloads, rank_scores_by_client) -> Dict[int, int]:
+        if not self.config.use_dynamic_rank:
+            return {p["client_id"]: p["rank"] for p in payloads}
+        ranks = lora_math.allocate_ranks(
+            [rank_scores_by_client[p["client_id"]] for p in payloads],
+            self.config.rank_pool,
+        )
+        return {p["client_id"]: rank for p, rank in zip(payloads, ranks)}
+
+    def _merge_all_layers(self, payloads, align_by_client, rank_scores_by_client,
+                          b_client_ids):
         keys = self._layer_keys(payloads)
         id_to_payload = {p["client_id"]: p for p in payloads}
-        weights = [align_by_client[cid] * id_to_payload[cid]["num_examples"]
-                   for cid in b_client_ids]
+        n_samples = [id_to_payload[cid]["num_examples"] for cid in b_client_ids]
+        align_scores = [align_by_client[cid] for cid in b_client_ids]
+        rank_scores = [rank_scores_by_client[cid] for cid in b_client_ids]
 
         blob = {}
         for key in keys:
@@ -222,7 +269,11 @@ class FalconStrategy(fl.server.strategy.Strategy):
             b_list = [id_to_payload[cid]["layers"][key]["B"] for cid in b_client_ids]
             a_list = [id_to_payload[cid]["layers"][key]["A"] for cid in b_client_ids]
             blob[key] = lora_math.merge_layer(
-                a_all, b_list, a_list, weights, self.config.global_rank)
+                a_all, b_list, a_list, n_samples, self._server_rank(),
+                align_scores=align_scores,
+                rank_scores=rank_scores,
+                use_dynamic_rank=self.config.use_dynamic_rank,
+            )
         return blob
 
     def _consensus_only_blob(self, payloads):
@@ -230,7 +281,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
         blob = {}
         for key in self._layer_keys(payloads):
             a_all = [p["layers"][key]["A"] for p in payloads]
-            a_global = lora_math.consensus_subspace(a_all, self.config.global_rank)
+            a_global = lora_math.consensus_subspace(a_all, self._server_rank())
             blob[key] = (a_global, None)
         return blob
 
