@@ -43,7 +43,7 @@ class Config:
     agent_n_ctx: int = 4096
 
     # ----- Data -----
-    data_path: str = "./data/fed_wildchat.json"
+    data_path: str = "./data/FedLLM-Bench-Data/Fed-WildChat/single_turn/wildchat_100c_53k.json"
     eval_fraction: float = 0.1
 
     # ----- Flower simulation (Ray) -----
