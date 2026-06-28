@@ -28,10 +28,17 @@ from .serialization import decode, encode
 
 
 class FalconStrategy(fl.server.strategy.Strategy):
-    def __init__(self, config: Config, agent, client_ranks: Dict[int, int]):
+    def __init__(
+        self,
+        config: Config,
+        agent,
+        client_ranks: Dict[int, int],
+        client_groups: Optional[Dict[int, str]] = None,
+    ):
         self.config = config
         self.agent = agent
         self.client_ranks = client_ranks
+        self.client_groups = client_groups or {}
         self.total_rank = float(sum(client_ranks.values()))
         self.budget = max(
             config.b_budget_fraction * self.total_rank,
@@ -123,6 +130,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
 
         stats = [{
             "client_id": p["client_id"],
+            "group": self.client_groups.get(p["client_id"], ""),
             "align": align_by_client[p["client_id"]],
             "num_examples": p["num_examples"],
             "cost": float(p["rank"]),

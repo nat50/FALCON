@@ -11,13 +11,15 @@ import re
 from typing import Dict, List
 
 from .config import Config
+from .data import dataset_agent_description
 
 from llama_cpp import Llama
+
 
 class LLMAgent:
 
     def __init__(self, config: Config):
-        
+        self.dataset_description = dataset_agent_description(config.dataset_name)
         self.llm = Llama.from_pretrained(
             repo_id=config.agent_repo_id,
             filename=config.agent_gguf_filename,
@@ -29,6 +31,10 @@ class LLMAgent:
     def _build_prompt(self, stats: List[Dict], budget: float) -> str:
         lines = [
             "You are a federated-learning server agent.",
+            "",
+            "Dataset context:",
+            self.dataset_description,
+            "",
             "Each client trained a LoRA adapter. 'align' in [0,1] is how much the",
             "client's knowledge is COMMON (high) vs PRIVATE (low). Requesting a",
             "client's B matrix costs 'cost' units; the total budget is",
@@ -38,8 +44,10 @@ class LLMAgent:
             "Clients:",
         ]
         for s in stats:
+            group = str(s.get("group", "")).strip()
+            group_text = f" group={json.dumps(group)}" if group else ""
             lines.append(
-                f"- id={s['client_id']} align={s['align']:.3f} "
+                f"- id={s['client_id']}{group_text} align={s['align']:.3f} "
                 f"examples={s['num_examples']} cost={s['cost']:.0f}"
             )
         lines.append("")

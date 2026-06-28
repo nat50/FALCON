@@ -30,6 +30,48 @@ SUPPORTED_DATASETS = {
     "allenai/tulu-v2-sft-mixture",
 }
 
+AGENT_DATASET_DESCRIPTIONS = {
+    "databricks/databricks-dolly-15k": (
+        "The clients are built from the Dolly instruction dataset. Each client "
+        "corresponds to one Dolly category, such as open QA, general QA, "
+        "classification, brainstorming, summarization, information extraction, "
+        "or creative writing. A high-alignment client likely contributes "
+        "instruction-following behavior shared across categories. A "
+        "low-alignment client likely contains more category-specific behavior. "
+        "Request B from clients that improve the shared model under the "
+        "communication budget."
+    ),
+    "HuggingFaceH4/no_robots": (
+        "The clients are built from the No Robots instruction dataset. Each "
+        "client corresponds to one instruction category, such as generation, "
+        "open QA, brainstorming, chat, rewriting, summarization, coding, "
+        "classification, closed QA, or extraction. A high-alignment client "
+        "likely represents reusable instruction-following behavior shared "
+        "across categories. A low-alignment client likely contains more "
+        "category-specific style or task behavior. Request B from clients that "
+        "look common enough to improve the shared model under the communication "
+        "budget."
+    ),
+    "allenai/tulu-v2-sft-mixture": (
+        "The clients are built from a multi-source instruction-tuning mixture. "
+        "Each client corresponds to one source dataset or source family, such "
+        "as FLAN, Open Assistant, ShareGPT, Code-Alpaca, LIMA, WizardLM, or "
+        "OpenOrca. A high-alignment client likely contributes general assistant "
+        "behavior that should transfer across sources. A low-alignment client "
+        "likely contributes specialized source behavior, such as code, long "
+        "chat style, or reasoning traces. Request B from clients whose updates "
+        "look broadly shared and communication-efficient."
+    ),
+}
+
+
+def dataset_agent_description(dataset_name: str) -> str:
+    """Return the short dataset description included in every agent prompt."""
+    if dataset_name in AGENT_DATASET_DESCRIPTIONS:
+        return AGENT_DATASET_DESCRIPTIONS[dataset_name]
+    supported = ", ".join(sorted(SUPPORTED_DATASETS))
+    raise ValueError(f"unsupported dataset '{dataset_name}'. Supported: {supported}")
+
 
 def format_dolly_example(example: dict) -> str:
     """Render one Dolly row into a single training string."""
