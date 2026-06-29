@@ -24,9 +24,10 @@ LLMAgent and there is no heuristic fallback. Configure the model via `agent_repo
 
 The pipeline trains on **Fed-WildChat** from
 [FedLLM-Bench](https://github.com/rui-ye/FedLLM-Bench): real human-chatbot conversations
-naturally partitioned by user. Download the Fed-WildChat data (multi-turn variant) from
-the FedLLM-Bench data link and save it as `data/fed_wildchat.json`, a JSON object mapping
-each user id to a list of `{"instruction", "response"}` samples.
+naturally partitioned by user. Download the Fed-WildChat data from the FedLLM-Bench
+data link and keep the single-turn split at
+`data/FedLLM-Bench-Data/Fed-WildChat/single_turn/wildchat_100c_53k.json`, a JSON
+object mapping each user id to a list of `{"instruction", "response"}` samples.
 
 The loader uses the full dataset, merges the users into `num_clients` clients balanced by
 sample count, and holds out `eval_fraction` of each client for evaluation.
