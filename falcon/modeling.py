@@ -25,7 +25,7 @@ def build_model(model_name: str, rank: int, target_modules: List[str],
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    base = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float32)
+    base = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
     lora_config = LoraConfig(
         r=rank,
         lora_alpha=alpha,
