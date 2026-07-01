@@ -1,56 +1,65 @@
-"""Federated client datasets built from Fed-WildChat (FedLLM-Bench).
+"""Federated client datasets built from Databricks Dolly.
 
-The raw file is a JSON object mapping each source user id to a list of
-{"instruction", "response"} samples. Users are merged into a fixed number of
-clients (balanced by sample count) to form the federation, and each client
-holds out a fraction of its data for evaluation.
+Dolly samples include a category label. Whole categories are assigned to a
+fixed number of clients, balancing sample counts while keeping every category
+inside exactly one client. Each client holds out a fraction of its data for
+evaluation.
 
 Each client returns plain lists of formatted text strings, so the client trainer
 stays simple and framework-agnostic.
 """
 
-import json
+from collections import defaultdict
 import random
 from typing import Dict, List, Tuple
 
+from datasets import load_dataset  # type: ignore[reportMissingImports]
+
 PROMPT_TEMPLATE = (
     "### Instruction:\n{instruction}\n\n"
+    "{context_block}"
     "### Response:\n{response}"
 )
 
 
 def format_example(example: dict) -> str:
     """Render one sample into a single training string."""
+    context = str(example.get("context", "")).strip()
+    context_block = f"### Context:\n{context}\n\n" if context else ""
     return PROMPT_TEMPLATE.format(
         instruction=str(example.get("instruction", "")).strip(),
+        context_block=context_block,
         response=str(example.get("response", "")).strip(),
     )
 
 
-def _load_users(data_path: str) -> Dict[str, List[str]]:
-    """Read the raw JSON and return {user_id: [formatted_text, ...]}."""
-    with open(data_path, "r", encoding="utf-8") as handle:
-        raw = json.load(handle)
-    return {
-        user_id: [format_example(sample) for sample in samples]
-        for user_id, samples in raw.items()
-    }
+def _load_categories(data_path: str) -> Dict[str, List[str]]:
+    """Load Dolly and return {category: [formatted_text, ...]}."""
+    dataset = load_dataset(data_path, split="train")
+    categories: Dict[str, List[str]] = defaultdict(list)
+    for sample in dataset:
+        category = str(sample.get("category", "uncategorized")).strip()
+        categories[category or "uncategorized"].append(format_example(sample))
+    return dict(categories)
 
 
-def _merge_users_into_clients(
-    users: Dict[str, List[str]], num_clients: int
-) -> Tuple[List[List[str]], List[int]]:
-    """Greedily assign whole users to clients, balancing total sample counts."""
+def _merge_categories_into_clients(
+    categories: Dict[str, List[str]], num_clients: int
+) -> Tuple[List[List[str]], List[List[str]]]:
+    """Greedily assign whole categories to clients by total sample counts."""
+    if num_clients <= 0:
+        raise ValueError(f"num_clients must be positive, got {num_clients}")
+
     texts_bins: List[List[str]] = [[] for _ in range(num_clients)]
-    user_counts = [0] * num_clients
+    category_bins: List[List[str]] = [[] for _ in range(num_clients)]
     sizes = [0] * num_clients
-    ordered = sorted(users.values(), key=len, reverse=True)
-    for texts in ordered:
+    ordered = sorted(categories.items(), key=lambda item: len(item[1]), reverse=True)
+    for category, texts in ordered:
         target = min(range(num_clients), key=lambda i: sizes[i])
         texts_bins[target].extend(texts)
+        category_bins[target].append(category)
         sizes[target] += len(texts)
-        user_counts[target] += 1
-    return texts_bins, user_counts
+    return texts_bins, category_bins
 
 
 def load_client_datasets(
@@ -59,14 +68,14 @@ def load_client_datasets(
     eval_fraction: float,
     seed: int,
 ) -> Dict[int, Dict[str, List[str]]]:
-    """Build per-client train/eval splits from the Fed-WildChat JSON file.
+    """Build per-client train/eval splits from Dolly categories.
 
     Returns:
         {client_id: {"train": [str, ...], "eval": [str, ...]}}
     """
     rng = random.Random(seed)
-    users = _load_users(data_path)
-    texts_bins, user_counts = _merge_users_into_clients(users, num_clients)
+    categories = _load_categories(data_path)
+    texts_bins, category_bins = _merge_categories_into_clients(categories, num_clients)
 
     clients: Dict[int, Dict[str, List[str]]] = {}
     for client_id, texts in enumerate(texts_bins):
@@ -75,8 +84,9 @@ def load_client_datasets(
         eval_texts = texts[:n_eval]
         train_texts = texts[n_eval:]
         clients[client_id] = {"train": train_texts, "eval": eval_texts}
+        category_label = ", ".join(sorted(category_bins[client_id])) or "none"
         print(
             f"[data] client {client_id}: {len(train_texts)} train / "
-            f"{len(eval_texts)} eval ({user_counts[client_id]} users)"
+            f"{len(eval_texts)} eval (categories: {category_label})"
         )
     return clients

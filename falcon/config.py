@@ -26,7 +26,7 @@ class Config:
     rank_gamma: float = 0.4
 
     # ----- Federation -----
-    num_clients: int = 10
+    num_clients: int = 6
     num_rounds: int = 30
     local_epochs: int = 1
     local_batch_size: int = 8
@@ -43,7 +43,7 @@ class Config:
     agent_n_ctx: int = 4096
 
     # ----- Data -----
-    data_path: str = "./data/FedLLM-Bench-Data/Fed-WildChat/single_turn/wildchat_100c_53k.json"
+    data_path: str = "databricks/databricks-dolly-15k"
     eval_fraction: float = 0.1
 
     # ----- Flower simulation (Ray) -----

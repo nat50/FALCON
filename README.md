@@ -22,14 +22,13 @@ LLMAgent and there is no heuristic fallback. Configure the model via `agent_repo
 
 ## Dataset
 
-The pipeline trains on **Fed-WildChat** from
-[FedLLM-Bench](https://github.com/rui-ye/FedLLM-Bench): real human-chatbot conversations
-naturally partitioned by user. Download the Fed-WildChat data (multi-turn variant) from
-the FedLLM-Bench data link and save it as `data/fed_wildchat.json`, a JSON object mapping
-each user id to a list of `{"instruction", "response"}` samples.
+The pipeline trains on **Databricks Dolly 15k** from Hugging Face:
+`databricks/databricks-dolly-15k`. Each sample contains `instruction`, optional
+`context`, `response`, and `category` fields.
 
-The loader uses the full dataset, merges the users into `num_clients` clients balanced by
-sample count, and holds out `eval_fraction` of each client for evaluation.
+The loader groups samples by category, assigns whole categories into `num_clients`
+clients balanced by sample count, and holds out `eval_fraction` of each client for
+evaluation. The default configuration uses 6 clients.
 
 ## Run
 
