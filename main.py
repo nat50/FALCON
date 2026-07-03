@@ -18,6 +18,7 @@ from falcon import data
 from falcon.agent import make_agent
 from falcon.client import FalconClient
 from falcon.config import default_config
+from falcon.fedsa_strategy import FedSAStrategy
 from falcon.results import RunLogger
 from falcon.strategy import FalconStrategy
 
@@ -86,8 +87,17 @@ def _write_outputs(logger, config, history, strategy):
     })
 
 
+def _make_strategy(config, client_ranks):
+    method = config.baseline_method.lower()
+    if method == "falcon":
+        return FalconStrategy(config, make_agent(config), client_ranks)
+    if method == "fedsa":
+        return FedSAStrategy(config, client_ranks)
+    raise ValueError(f"unknown baseline_method: {config.baseline_method!r}")
+
+
 def run_simulation(config, client_data, client_ranks, logger):
-    """Run the FALCON simulation and persist its results."""
+    """Run the configured federated simulation and persist its results."""
     def client_fn(context: Context):
         client_id = int(context.node_config["partition-id"])
         return FalconClient(
@@ -98,7 +108,7 @@ def run_simulation(config, client_data, client_ranks, logger):
             config=config,
         ).to_client()
 
-    strategy = FalconStrategy(config, make_agent(config), client_ranks)
+    strategy = _make_strategy(config, client_ranks)
     history = fl.simulation.start_simulation(
         client_fn=client_fn,
         num_clients=config.num_clients,
