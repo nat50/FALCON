@@ -1,12 +1,12 @@
-"""Flower client: adopt the shared A, keep a personal B, train locally, upload.
+"""Flower client: adopt the shared A, train locally, upload LoRA factors.
 
 Per round:
   1. Receive the global (A_global, B_global) blob from the server.
-  2. Set the shared A (truncated to this client's rank). Load the personal B from
-     disk, or initialize it from the truncated global B on the first round.
+  2. Set the shared A (truncated to this client's rank). FALCON/FedSA keep a
+     personal B, while FlexLoRA uses the truncated global B each round.
   3. Fine-tune locally on private data.
-  4. Save the personal B back to disk (it stays local).
-  5. Upload A always; upload B only if the agent requested it this round.
+  4. Save the personal B back to disk for personal-B methods.
+  5. Upload A always; upload B if the server requested it this round.
 """
 
 import json
@@ -15,7 +15,7 @@ from typing import Dict, List
 import flwr as fl
 import numpy as np
 
-from . import lora_math, modeling, state_store
+from . import modeling, state_store
 from .config import Config
 from .serialization import decode, encode
 
@@ -58,11 +58,18 @@ class FalconClient(fl.client.NumPyClient):
             raise ValueError(f"{NEW_RANK_KEY} must be positive, got {rank}")
         return rank
 
+    def _uses_global_B(self) -> bool:
+        return self.config.baseline_method.lower() in {"flexlora", "flexlora_data_rank"}
+
     def _apply_global(self, global_blob) -> None:
-        """Install the shared A and pick B (personal if available, else shared init)."""
+        """Install shared A and the B policy selected by the configured method."""
         if global_blob is None:
             return  # cold start: keep the random LoRA init
-        personal_b = state_store.load_personal_B(self.config.state_dir, self.client_id)
+        use_global_b = self._uses_global_B()
+        personal_b = (
+            None if use_global_b
+            else state_store.load_personal_B(self.config.state_dir, self.client_id)
+        )
         for key, (a_global, b_global) in global_blob.items():
             if a_global.shape[0] < self.rank:
                 raise ValueError(
@@ -70,6 +77,17 @@ class FalconClient(fl.client.NumPyClient):
                     f"cannot serve client rank {self.rank}"
                 )
             modeling.set_lora_factor(self.model, key, "A", a_global[: self.rank, :])
+
+            if use_global_b:
+                if b_global is None:
+                    continue
+                if b_global.shape[1] < self.rank:
+                    raise ValueError(
+                        f"global B for {key} has rank {b_global.shape[1]}, "
+                        f"cannot serve client rank {self.rank}"
+                    )
+                modeling.set_lora_factor(self.model, key, "B", b_global[:, : self.rank])
+                continue
 
             if personal_b and key in personal_b:
                 b_saved = personal_b[key]
@@ -141,7 +159,8 @@ class FalconClient(fl.client.NumPyClient):
         )
 
         factors = modeling.get_lora_AB(self.model)
-        self._save_personal_B(factors)
+        if not self._uses_global_B():
+            self._save_personal_B(factors)
 
         request_b = self._should_upload_B(config)
         layers = {}

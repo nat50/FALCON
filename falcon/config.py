@@ -10,6 +10,12 @@ from typing import List
 
 @dataclass
 class Config:
+    # ----- Method -----
+    # "falcon" keeps the original dynamic-rank + selective-B strategy.
+    # "fedsa" runs the FedSA baseline: fixed-rank, A-only aggregation, no agent.
+    # "flexlora" runs the FlexLoRA baseline: data-ranked clients, full A+B upload.
+    baseline_method: str = "flexlora"
+
     # ----- Client model (LoRA fine-tuning target) -----
     client_model_name: str = "Qwen/Qwen3-0.6B-Base"
     lora_target_modules: List[str] = field(
@@ -20,14 +26,17 @@ class Config:
     # ----- Heterogeneous ranks -----
     # Discrete ranks for initial assignment and per-round dynamic allocation.
     # LoRA alpha equals each client's rank (scale factor alpha/r = 1).
-    rank_pool: List[int] = field(default_factory=lambda: [4, 8, 16, 32])
+    rank_pool: List[int] = field(default_factory=lambda: [8])
+    flexlora_rank_pool: List[int] = field(
+        default_factory=lambda: [2, 4, 6, 8, 10, 12, 14, 16]
+    )
     rank_alpha: float = 0.3
     rank_beta: float = 0.3
     rank_gamma: float = 0.4
 
     # ----- Federation -----
-    num_clients: int = 6
-    num_rounds: int = 30
+    num_clients: int = 8
+    num_rounds: int = 20
     local_epochs: int = 1
     local_batch_size: int = 8
     local_lr: float = 2e-4

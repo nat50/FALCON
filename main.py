@@ -19,6 +19,7 @@ from falcon.agent import make_agent
 from falcon.client import FalconClient
 from falcon.config import default_config
 from falcon.fedsa_strategy import FedSAStrategy
+from falcon.flexlora_strategy import FlexLoRAStrategy
 from falcon.results import RunLogger
 from falcon.strategy import FalconStrategy
 
@@ -31,7 +32,25 @@ def set_seed(seed: int) -> None:
 
 def assign_ranks(num_clients: int, rank_pool):
     """Give each client a (possibly different) LoRA rank from the pool."""
+    if not rank_pool:
+        raise ValueError("rank_pool must not be empty")
     return {cid: rank_pool[cid % len(rank_pool)] for cid in range(num_clients)}
+
+
+def assign_data_ranks(client_data, rank_pool):
+    """Assign higher LoRA ranks to clients with more training examples."""
+    if len(rank_pool) != len(client_data):
+        raise ValueError(
+            "FlexLoRA rank pool must contain exactly one rank per client: "
+            f"got {len(rank_pool)} ranks for {len(client_data)} clients"
+        )
+    ranks_desc = sorted((int(rank) for rank in rank_pool), reverse=True)
+    clients_by_data = sorted(
+        client_data,
+        key=lambda cid: len(client_data[cid]["train"]),
+        reverse=True,
+    )
+    return {client_id: rank for client_id, rank in zip(clients_by_data, ranks_desc)}
 
 
 def load_data_and_ranks(config):
@@ -40,7 +59,11 @@ def load_data_and_ranks(config):
         config.data_path, config.num_clients,
         config.eval_fraction, config.seed,
     )
-    client_ranks = assign_ranks(config.num_clients, config.rank_pool)
+    method = config.baseline_method.lower()
+    if method in {"flexlora", "flexlora_data_rank"}:
+        client_ranks = assign_data_ranks(client_data, config.flexlora_rank_pool)
+    else:
+        client_ranks = assign_ranks(config.num_clients, config.rank_pool)
     print(f"[main] client ranks: {client_ranks}")
     return client_data, client_ranks
 
@@ -93,6 +116,8 @@ def _make_strategy(config, client_ranks):
         return FalconStrategy(config, make_agent(config), client_ranks)
     if method == "fedsa":
         return FedSAStrategy(config, client_ranks)
+    if method in {"flexlora", "flexlora_data_rank"}:
+        return FlexLoRAStrategy(config, client_ranks)
     raise ValueError(f"unknown baseline_method: {config.baseline_method!r}")
 
 
