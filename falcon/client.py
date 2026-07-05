@@ -3,7 +3,7 @@
 Per round:
   1. Receive the global (A_global, B_global) blob from the server.
   2. Set the shared A (truncated to this client's rank). FALCON/FedSA keep a
-     personal B, while FlexLoRA uses the truncated global B each round.
+     personal B, while full-sharing baselines use the global B each round.
   3. Fine-tune locally on private data.
   4. Save the personal B back to disk for personal-B methods.
   5. Upload A always; upload B if the server requested it this round.
@@ -59,7 +59,12 @@ class FalconClient(fl.client.NumPyClient):
         return rank
 
     def _uses_global_B(self) -> bool:
-        return self.config.baseline_method.lower() in {"flexlora", "flexlora_data_rank"}
+        return self.config.baseline_method.lower() in {
+            "fedit",
+            "fedit_fixed",
+            "flexlora",
+            "flexlora_data_rank",
+        }
 
     def _apply_global(self, global_blob) -> None:
         """Install shared A and the B policy selected by the configured method."""

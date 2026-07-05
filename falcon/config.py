@@ -14,6 +14,7 @@ class Config:
     # "falcon" keeps the original dynamic-rank + selective-B strategy.
     # "fedsa" runs the FedSA baseline: fixed-rank, A-only aggregation, no agent.
     # "flexlora" runs the FlexLoRA baseline: data-ranked clients, full A+B upload.
+    # "fedit" runs the FedIT baseline: fixed-rank, full A+B FedAvg, no agent.
     baseline_method: str = "flexlora"
 
     # ----- Client model (LoRA fine-tuning target) -----

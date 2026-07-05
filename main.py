@@ -18,6 +18,7 @@ from falcon import data
 from falcon.agent import make_agent
 from falcon.client import FalconClient
 from falcon.config import default_config
+from falcon.fedit_strategy import FedITStrategy
 from falcon.fedsa_strategy import FedSAStrategy
 from falcon.flexlora_strategy import FlexLoRAStrategy
 from falcon.results import RunLogger
@@ -116,6 +117,8 @@ def _make_strategy(config, client_ranks):
         return FalconStrategy(config, make_agent(config), client_ranks)
     if method == "fedsa":
         return FedSAStrategy(config, client_ranks)
+    if method in {"fedit", "fedit_fixed"}:
+        return FedITStrategy(config, client_ranks)
     if method in {"flexlora", "flexlora_data_rank"}:
         return FlexLoRAStrategy(config, client_ranks)
     raise ValueError(f"unknown baseline_method: {config.baseline_method!r}")
