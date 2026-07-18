@@ -107,7 +107,6 @@ def merge_layer(
     a_clients: List[np.ndarray],
     n_samples: List[float],
     rank: int,
-    rank_scores: List[float],
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Aggregate one LoRA layer across clients with heterogeneous ranks.
 
@@ -117,7 +116,6 @@ def merge_layer(
         a_clients: matching A matrices for those same clients (same order as b_clients).
         n_samples: sample counts for B-clients.
         rank: global rank R to keep.
-        rank_scores: dynamic rank scores S_i for B-clients.
 
     Returns:
         (A_global (R, k), B_global (d, R)).
@@ -129,9 +127,8 @@ def merge_layer(
     k_in = a_all[0].shape[1]
     delta_bar = np.zeros((d_out, k_in), dtype=np.float64)
     samples = np.asarray(n_samples, dtype=np.float64)
-    weights = np.asarray(rank_scores, dtype=np.float64) * samples
-    weight_sum = float(np.sum(weights)) or 1.0
-    for b_mat, a_mat, w in zip(b_clients, a_clients, weights):
+    weight_sum = float(np.sum(samples)) or 1.0
+    for b_mat, a_mat, w in zip(b_clients, a_clients, samples):
         delta_bar += (w / weight_sum) * (b_mat @ a_mat)
 
     delta_shared = delta_bar @ proj  # keep only consensus directions

@@ -136,8 +136,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
             if p["client_id"] in requested_ids and p["request_b"] and self._has_B(p)
         ]
         if b_client_ids:
-            self.global_blob = self._merge_all_layers(
-                payloads, rank_scores_by_client, b_client_ids)
+            self.global_blob = self._merge_all_layers(payloads, b_client_ids)
         else:
             # No B available this round: share the consensus A only.
             self.global_blob = self._consensus_only_blob(payloads)
@@ -160,9 +159,6 @@ class FalconStrategy(fl.server.strategy.Strategy):
         metrics = {
             "comm_cost": comm_cost,
             "num_b_uploaders": len(b_client_ids),
-            "mean_rank_score": (
-                sum(rank_scores_by_client.values()) / max(len(rank_scores_by_client), 1)
-            ),
         }
         return ndarrays_to_parameters([encode(self.global_blob)]), metrics
 
@@ -268,11 +264,10 @@ class FalconStrategy(fl.server.strategy.Strategy):
         )
         return {p["client_id"]: rank for p, rank in zip(payloads, ranks)}
 
-    def _merge_all_layers(self, payloads, rank_scores_by_client, b_client_ids):
+    def _merge_all_layers(self, payloads, b_client_ids):
         keys = self._layer_keys(payloads)
         id_to_payload = {p["client_id"]: p for p in payloads}
         n_samples = [id_to_payload[cid]["num_examples"] for cid in b_client_ids]
-        rank_scores = [rank_scores_by_client[cid] for cid in b_client_ids]
 
         blob = {}
         for key in keys:
@@ -281,7 +276,6 @@ class FalconStrategy(fl.server.strategy.Strategy):
             a_list = [id_to_payload[cid]["layers"][key]["A"] for cid in b_client_ids]
             blob[key] = lora_math.merge_layer(
                 a_all, b_list, a_list, n_samples, self._server_rank(),
-                rank_scores,
             )
         return blob
 
