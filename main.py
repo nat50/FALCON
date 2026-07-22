@@ -42,7 +42,7 @@ def assign_data_ranks(client_data, rank_pool):
     """Assign higher LoRA ranks to clients with more training examples."""
     if len(rank_pool) != len(client_data):
         raise ValueError(
-            "FlexLoRA rank pool must contain exactly one rank per client: "
+            "rank_pool must contain exactly one rank per client for FlexLoRA: "
             f"got {len(rank_pool)} ranks for {len(client_data)} clients"
         )
     ranks_desc = sorted((int(rank) for rank in rank_pool), reverse=True)
@@ -62,7 +62,7 @@ def load_data_and_ranks(config):
     )
     method = config.baseline_method.lower()
     if method in {"flexlora", "flexlora_data_rank"}:
-        client_ranks = assign_data_ranks(client_data, config.flexlora_rank_pool)
+        client_ranks = assign_data_ranks(client_data, config.rank_pool)
     else:
         client_ranks = assign_ranks(config.num_clients, config.rank_pool)
     print(f"[main] client ranks: {client_ranks}")

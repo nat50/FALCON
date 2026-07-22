@@ -15,7 +15,7 @@ class Config:
     # "fedsa" runs the FedSA baseline: fixed-rank, A-only aggregation, no agent.
     # "flexlora" runs the FlexLoRA baseline: data-ranked clients, full A+B upload.
     # "fedit" runs the FedIT baseline: fixed-rank, full A+B FedAvg, no agent.
-    baseline_method: str = "flexlora"
+    baseline_method: str = "falcon"
 
     # ----- Client model (LoRA fine-tuning target) -----
     client_model_name: str = "Qwen/Qwen3-0.6B-Base"
@@ -24,13 +24,14 @@ class Config:
     )
     lora_dropout: float = 0.05
 
-    # ----- Heterogeneous ranks -----
-    # Discrete ranks for initial assignment and per-round dynamic allocation.
+    # ----- Ranks -----
+    # All methods read rank_pool; mapping depends on baseline_method:
+    #   falcon  — dynamic rank from this pool
+    #   fedsa / fedit — fixed rank; use a single value, e.g. [8]
+    #   flexlora — one rank per client (len == num_clients), mapped by data size
     # LoRA alpha equals each client's rank (scale factor alpha/r = 1).
-    rank_pool: List[int] = field(default_factory=lambda: [8])
-    flexlora_rank_pool: List[int] = field(
-        default_factory=lambda: [2, 4, 6, 8, 10, 12, 14, 16]
-    )
+    rank_pool: List[int] = field(default_factory=lambda: [4, 8, 16, 32])
+    # Falcon-only score weights for dynamic rank allocation.
     rank_alpha: float = 0.3
     rank_beta: float = 0.3
     rank_gamma: float = 0.4
@@ -39,7 +40,7 @@ class Config:
     num_clients: int = 8
     num_rounds: int = 20
     local_epochs: int = 1
-    local_batch_size: int = 8
+    local_batch_size: int = 6
     local_lr: float = 2e-4
     max_seq_len: int = 1024
 
@@ -58,8 +59,8 @@ class Config:
 
     # ----- Flower simulation (Ray) -----
     # Fraction of a GPU per simulated client; set num_gpus_per_client=0 for CPU-only runs.
-    num_cpus_per_client: int = 4
-    num_gpus_per_client: float = 0.5
+    num_cpus_per_client: int = 8
+    num_gpus_per_client: float = 1.0
 
     # ----- Misc -----
     seed: int = 42
