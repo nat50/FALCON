@@ -3,7 +3,7 @@
     Federated Agentic LoRA for Constrained Optimization Networks
   </p>
 </p>
-An agent-guided selective-sharing framework for communication-efficient federated LoRA fine-tuning of Large Language Models. FALCON decouples deterministic mathematical aggregation from LLM-based agentic orchestration — all clients upload low-cost **A** factors to build a consensus subspace via SVD, while an LLM agent selectively schedules **B**-matrix uploads under a strict communication budget.
+An agent-guided selective-sharing framework for communication-efficient federated LoRA fine-tuning of Large Language Models.
 ---
 
 ## Architecture
