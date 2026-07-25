@@ -18,7 +18,7 @@ FALCON consists of three components:
 |---|---|
 | **Client** | Fine-tunes local LoRA adapters on private data. Uploads A always; uploads B only if selected. |
 | **Server** | Constructs a consensus subspace from all A matrices, aggregates selected updates, factorizes into global adapters (A_g, B_g). |
-| **Agentic Control Plane** | Computes rank scores, allocates dynamic ranks, and employs an LLM to select the B-upload subset S_t under a communication budget. |
+| **Agentic Control Plane** | Computes rank scores, allocates dynamic ranks, and employs a 0/1-knapsack algorithm to select the B-upload subset S_t under a communication budget. |
 
 ---
 ## Installation
@@ -33,17 +33,11 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### LLM Agent Dependency
+### Selection Agent
 
-The selection agent requires [`llama-cpp-python`](https://github.com/abetlen/llama-cpp-python). The default config downloads a **Gemma-4-E2B GGUF** model automatically on first run:
+The B-upload subset is chosen by an exact 0/1-knapsack solve: maximize total `align` subject to the round's communication `budget` (cost = client rank).
 
-```python
-# falcon/config.py
-agent_repo_id    = "google/gemma-4-E2B-it-qat-q4_0-gguf"
-agent_gguf_filename = "gemma-4-E2B_q4_0-it.gguf"
-```
-
-> **Note:** There is no heuristic fallback — the LLM agent is always required for the FALCON strategy. Baselines (FedIT, FedSA, FlexLoRA) do not use the agent.
+> **Note:** The agent is required for the FALCON strategy. Baselines (FedIT, FedSA, FlexLoRA) do not use the agent.
 
 ---
 
@@ -98,7 +92,7 @@ All settings live in [`falcon/config.py`](falcon/config.py). Key parameters:
 Switch between methods by changing `baseline_method` in [`falcon/config.py`](falcon/config.py):
 
 ```python
-# FALCON (default) — dynamic rank + selective B + LLM agent
+# FALCON (default) — dynamic rank + selective B + knapsack agent
 baseline_method = "falcon"
 rank_pool = [4, 8, 16, 32]
 b_budget_fraction = 0.4          # try 0.1, 0.4, 0.8

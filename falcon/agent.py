@@ -1,87 +1,41 @@
 """Server-side selection agent: decide which clients upload B this round.
 
-The agent is always an LLMAgent backed by a Gemma GGUF model (text-only). If the model cannot be loaded or its output cannot be parsed,
-an error is raised.
+The agent solves an exact 0/1 knapsack: maximize total 'align' subject to the
+per-round communication 'budget', where each client's cost is its rank.
 
 A "client stat" is a dict: {"client_id": int, "align": float, "num_examples": int, "cost": float}.
 """
 
-import json
-import re
+import math
 from typing import Dict, List
 
 from .config import Config
 
-from llama_cpp import Llama
 
-class LLMAgent:
+class KnapsackAgent:
+    """Selects the B-uploader subset maximizing total align under the budget (0/1 knapsack)."""
 
     def __init__(self, config: Config):
-        
-        self.llm = Llama.from_pretrained(
-            repo_id=config.agent_repo_id,
-            filename=config.agent_gguf_filename,
-            n_ctx=config.agent_n_ctx,
-            verbose=False,
-        )
-        print("[agent] Agent loaded.")
-
-    def _build_prompt(self, stats: List[Dict], budget: float) -> str:
-        lines = [
-            "You are a federated-learning server agent.",
-            "Each client trained a LoRA adapter. 'align' in [0,1] is how much the",
-            "client's knowledge is COMMON (high) vs PRIVATE (low). Requesting a",
-            "client's B matrix costs 'cost' units; the total budget is",
-            f"{budget:.0f} units. Pick clients whose B best improves the SHARED model",
-            "(prefer high align and many examples) without exceeding the budget.",
-            "",
-            "Clients:",
-        ]
-        for s in stats:
-            lines.append(
-                f"- id={s['client_id']} align={s['align']:.3f} "
-                f"examples={s['num_examples']} cost={s['cost']:.0f}"
-            )
-        lines.append("")
-        lines.append('Answer with ONLY a JSON list of client ids, e.g. [0, 2, 3].')
-        return "\n".join(lines)
-
-    def _parse_ids(self, text: str, valid_ids: List[int]) -> List[int]:
-        match = re.search(r"\[[^\]]*\]", text)
-        if not match:
-            raise ValueError("no JSON list in model output")
-        raw = json.loads(match.group(0))
-        return [int(x) for x in raw if int(x) in valid_ids]
+        pass
 
     def select(self, stats: List[Dict], budget: float) -> List[int]:
-        prompt = self._build_prompt(stats, budget)
-        out = self.llm.create_chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=128,
-        )
-        text = out["choices"][0]["message"]["content"]
-        valid_ids = [s["client_id"] for s in stats]
-        chosen = self._parse_ids(text, valid_ids)
-        chosen = _enforce_budget(chosen, stats, budget)
-        print(f"[agent] selected B-uploaders: {sorted(chosen)}")
+        cap = int(math.floor(budget))
+        items = [(s["client_id"], max(int(s["cost"]), 1), float(s["align"])) for s in stats]
+
+        # dp[w] = best total align achievable with total cost <= w
+        dp = [0.0] * (cap + 1)
+        choice = [[] for _ in range(cap + 1)]
+        for cid, cost, value in items:
+            for w in range(cap, cost - 1, -1):
+                if dp[w - cost] + value > dp[w]:
+                    dp[w] = dp[w - cost] + value
+                    choice[w] = choice[w - cost] + [cid]
+
+        best_w = max(range(cap + 1), key=lambda w: dp[w])
+        chosen = choice[best_w]
+        print(f"[agent] (knapsack) selected B-uploaders: {sorted(chosen)}")
         return chosen
 
 
-def _enforce_budget(chosen: List[int], stats: List[Dict], budget: float) -> List[int]:
-    """Drop the cheapest-value clients until the choice fits the budget."""
-    cost_by_id = {s["client_id"]: max(s["cost"], 1.0) for s in stats}
-    align_by_id = {s["client_id"]: s["align"] for s in stats}
-    chosen = sorted(chosen, key=lambda cid: align_by_id.get(cid, 0.0), reverse=True)
-
-    kept, spent = [], 0.0
-    for cid in chosen:
-        cost = cost_by_id.get(cid, 1.0)
-        if spent + cost <= budget:
-            kept.append(cid)
-            spent += cost
-    return kept
-
-
 def make_agent(config: Config):
-    return LLMAgent(config)
+    return KnapsackAgent(config)
