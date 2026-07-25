@@ -4,7 +4,7 @@ Responsibilities:
   - configure_fit: broadcast the global blob and tell each client whether to send B.
   - aggregate_fit: build the consensus subspace from ALL A's, merge the B-clients'
     content, factorize into the new global (A_global, B_global), then run the agent
-    to choose who uploads B next round.
+    to allocate next round's ranks and choose who uploads B next round.
   - aggregate_evaluate: average per-client eval loss and record it per round.
 
 Communication cost is modelled per layer as proportional to rank (d is constant
@@ -246,7 +246,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
         return {cid: total / max(len(keys), 1) for cid, total in align_sum.items()}
 
     def _compute_rank_scores(self, payloads, align_by_client) -> Dict[int, float]:
-        scores = lora_math.compute_rank_scores(
+        scores = self.agent.compute_rank_scores(
             [p["num_examples"] for p in payloads],
             [p["loss_before"] for p in payloads],
             [p["loss_after"] for p in payloads],
@@ -258,7 +258,7 @@ class FalconStrategy(fl.server.strategy.Strategy):
         return {p["client_id"]: float(score) for p, score in zip(payloads, scores)}
 
     def _allocate_new_ranks(self, payloads, rank_scores_by_client) -> Dict[int, int]:
-        ranks = lora_math.allocate_ranks(
+        ranks = self.agent.allocate_ranks(
             [rank_scores_by_client[p["client_id"]] for p in payloads],
             self.config.rank_pool,
         )

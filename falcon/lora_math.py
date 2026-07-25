@@ -46,47 +46,6 @@ def alignment_score(a_matrix: np.ndarray, proj: np.ndarray) -> float:
     return max(0.0, min(1.0, inside / total))
 
 
-def _minmax(values: np.ndarray) -> np.ndarray:
-    """Normalize values to [0, 1] with the epsilon from the algorithm note."""
-    eps = 1e-6
-    return (values - np.min(values)) / (np.max(values) - np.min(values) + eps)
-
-
-def compute_rank_scores(
-    n_samples: List[float],
-    loss_before: List[float],
-    loss_after: List[float],
-    align_scores: List[float],
-    alpha: float,
-    beta: float,
-    gamma: float,
-) -> np.ndarray:
-    """Compute dynamic rank scores S_i from data, learning difficulty, and novelty."""
-    n_arr = np.asarray(n_samples, dtype=np.float64)
-    before = np.asarray(loss_before, dtype=np.float64)
-    after = np.asarray(loss_after, dtype=np.float64)
-    align = np.asarray(align_scores, dtype=np.float64)
-
-    eps = 1e-6
-    data_score = _minmax(n_arr)
-    progress = (before - after) / (before + eps)
-    learn_score = 1.0 - _minmax(progress)
-    novelty_score = 1.0 - np.clip(align, 0.0, 1.0)
-
-    scores = alpha * data_score + beta * learn_score + gamma * novelty_score
-    return np.clip(scores, 0.0, 1.0)
-
-
-def allocate_ranks(rank_scores: List[float], rank_pool: List[int]) -> List[int]:
-    """Map rank scores in [0, 1] to discrete ranks from the configured pool."""
-    if not rank_pool:
-        raise ValueError("rank_pool must not be empty")
-    pool = sorted(int(rank) for rank in rank_pool)
-    scores = np.clip(np.asarray(rank_scores, dtype=np.float64), 0.0, 1.0)
-    indices = np.minimum((scores * len(pool)).astype(int), len(pool) - 1)
-    return [pool[int(index)] for index in indices]
-
-
 def factorize(delta_w: np.ndarray, rank: int) -> Tuple[np.ndarray, np.ndarray]:
     """Split a (d, k) update into (A_global (R, k), B_global (d, R)) via SVD.
 
